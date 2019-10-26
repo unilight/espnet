@@ -47,8 +47,8 @@ griffin_lim_iters=64  # the number of iterations of Griffin-Lim
 
 # dataset configuration
 db_root=downloads
-lang=it_IT  # en_UK, de_DE, es_ES, it_IT
-spk=lisa    # see local/data_prep.sh to check available speakers
+lang=en_US  # en_UK, de_DE, es_ES, it_IT
+spk=judy    # see local/data_prep.sh to check available speakers
 
 # exp tag
 tag="" # tag for managing experiments.

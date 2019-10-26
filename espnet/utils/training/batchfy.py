@@ -397,3 +397,188 @@ def make_batchset(data, batch_size=0, max_length_in=float("inf"), max_length_out
 
     # batch: List[List[Tuple[str, dict]]]
     return batches
+
+#######################
+
+def batchfy_by_bin_for_vc(sorted_data, batch_bins, num_batches=0, min_batch_size=1, shortest_first=False,
+                   ikey="input", okey="output"):
+    """Make variably sized batch set, which maximizes the number of bins up to `batch_bins`.
+
+    :param Dict[str, Dict[str, Any]] sorted_data: dictionary loaded from data.json
+    :param int batch_bins: Maximum frames of a batch
+    :param int num_batches: # number of batches to use (for debug)
+    :param int min_batch_size: minimum batch size (for multi-gpu)
+    :param int test: Return only every `test` batches
+    :param bool shortest_first: Sort from batch with shortest samples to longest if true, otherwise reverse
+
+    :param str ikey: key to access input (for VC ikey="input".)
+    :param str okey: key to access output (for VC okey="input".)
+
+    :return: List[Tuple[str, Dict[str, List[Dict[str, Any]]]] list of batches
+    """
+
+    if batch_bins <= 0:
+        raise ValueError(f"invalid batch_bins={batch_bins}")
+    length = len(sorted_data)
+    idim = int(sorted_data[0][0][1][ikey][0]['shape'][1])
+    odim = int(sorted_data[0][1][1][okey][0]['shape'][1])
+    logging.info('# utts: ' + str(len(sorted_data)))
+    minibatches = []
+    start = 0
+    n = 0
+    while True:
+        # Dynamic batch size depending on size of samples
+        b = 0
+        next_size = 0
+        max_olen = 0
+        while next_size < batch_bins and (start + b) < length:
+            ilen = int(sorted_data[start + b][0][1][ikey][0]['shape'][0]) * idim
+            olen = int(sorted_data[start + b][1][1][okey][0]['shape'][0]) * odim
+            if olen > max_olen:
+                max_olen = olen
+            next_size = (max_olen + ilen) * (b + 1)
+            if next_size <= batch_bins:
+                b += 1
+            elif next_size == 0:
+                raise ValueError(
+                    f"Can't fit one sample in batch_bins ({batch_bins}): Please increase the value")
+        end = min(length, start + max(min_batch_size, b))
+        batch = sorted_data[start:end]
+        if shortest_first:
+            batch.reverse()
+        minibatches.append(batch)
+        # Check for min_batch_size and fixes the batches if needed
+        i = -1
+        while len(minibatches[i]) < min_batch_size:
+            missing = min_batch_size - len(minibatches[i])
+            if -i == len(minibatches):
+                minibatches[i + 1].extend(minibatches[i])
+                minibatches = minibatches[1:]
+                break
+            else:
+                minibatches[i].extend(minibatches[i - 1][:missing])
+                minibatches[i - 1] = minibatches[i - 1][missing:]
+                i -= 1
+        if end == length:
+            break
+        start = end
+        n += 1
+    if num_batches > 0:
+        minibatches = minibatches[:num_batches]
+    lengths = [len(x) for x in minibatches]
+    logging.info(str(len(minibatches)) + " batches containing from " +
+                 str(min(lengths)) + " to " + str(max(lengths)) + " samples " +
+                 "(avg " + str(int(np.mean(lengths))) + " samples).")
+    return minibatches
+
+def make_batchset_for_vc(src_data, trg_data, batch_size=0, max_length_in=float("inf"), max_length_out=float("inf"),
+                  num_batches=0, min_batch_size=1, shortest_first=False, batch_sort_key="input",
+                  swap_io=False, mt=False, count="auto",
+                  batch_bins=0, batch_frames_in=0, batch_frames_out=0, batch_frames_inout=0,
+                  iaxis=0, oaxis=0):
+    """Make batch set from json dictionary
+
+    if utts have "category" value,
+
+        >>> data = {'utt1': {'category': 'A', 'input': ...},
+        ...         'utt2': {'category': 'B', 'input': ...},
+        ...         'utt3': {'category': 'B', 'input': ...},
+        ...         'utt4': {'category': 'A', 'input': ...}}
+        >>> make_batchset(data, batchsize=2, ...)
+        [[('utt1', ...), ('utt4', ...)], [('utt2', ...), ('utt3': ...)]]
+
+    Note that if any utts doesn't have "category",
+    perform as same as batchfy_by_{count}
+
+    :param Dict[str, Dict[str, Any]] src_data: source dictionary loaded from data.json
+    :param Dict[str, Dict[str, Any]] trg_data: target dictionary loaded from data.json
+    :param int batch_size: maximum number of sequences in a minibatch.
+    :param int batch_bins: maximum number of bins (frames x dim) in a minibatch.
+    :param int batch_frames_in:  maximum number of input frames in a minibatch.
+    :param int batch_frames_out: maximum number of output frames in a minibatch.
+    :param int batch_frames_out: maximum number of input+output frames in a minibatch.
+    :param str count: strategy to count maximum size of batch.
+        For choices, see espnet.asr.batchfy.BATCH_COUNT_CHOICES
+
+    :param int max_length_in: maximum length of input to decide adaptive batch size
+    :param int max_length_out: maximum length of output to decide adaptive batch size
+    :param int num_batches: # number of batches to use (for debug)
+    :param int min_batch_size: minimum batch size (for multi-gpu)
+    :param bool shortest_first: Sort from batch with shortest samples to longest if true, otherwise reverse
+        :return: List[List[Tuple[str, dict]]] list of batches
+    :param str batch_sort_key: how to sort data before creating minibatches ["input", "output", "shuffle"]
+    :param bool swap_io: if True, use "input" as output and "output" as input in `data` dict
+    :param bool mt: if True, use 0-axis of "output" as output and 1-axis of "output" as input in `data` dict
+    :param int iaxis: dimension to access input (for ASR, TTS iaxis=0, for MT iaxis="1".)
+    :param int oaxis: dimension to access output (for ASR, TTS, MT oaxis=0, reserved for future research,
+                      -1 means all axis.)
+    """
+
+    # check args
+    if count not in BATCH_COUNT_CHOICES:
+        raise ValueError(f"arg 'count' ({count}) should be one of {BATCH_COUNT_CHOICES}")
+    if batch_sort_key not in BATCH_SORT_KEY_CHOICES:
+        raise ValueError(f"arg 'batch_sort_key' ({batch_sort_key}) should be one of {BATCH_SORT_KEY_CHOICES}")
+
+    # check input data utterances
+    if not len(src_data) == len(trg_data):
+        raise ValueError(f"source ({len(src_data)}) and target ({len(trg_data)}) datasets are of different length. ")
+
+    # merge source and target datasets
+    data = [(s, t) for s, t in zip(src_data.items(), trg_data.items())]
+
+    # for TTS
+    ikey = "input"
+    okey = "input"
+    batch_sort_axis = 0         # only mt needs to change this to 1
+    batch_sort_key = "input"    # input: Mel-filterbank
+
+    if count == "auto":
+        if batch_size != 0:
+            count = "seq"
+        elif batch_bins != 0:
+            count = "bin"
+        elif batch_frames_in != 0 or batch_frames_out != 0 or batch_frames_inout != 0:
+            count = "frame"
+        else:
+            raise ValueError(f"cannot detect `count` manually set one of {BATCH_COUNT_CHOICES}")
+        logging.info(f"count is auto detected as {count}")
+
+    if count != "seq" and batch_sort_key == "shuffle":
+        raise ValueError(f"batch_sort_key=shuffle is only available if batch_count=seq")
+
+
+    batches_list = []  # List[List[List[Tuple[str, dict]]]]
+    if batch_sort_key == 'shuffle':
+        raise ValueError(f"mini batch sort based on shuffle is not supported now.")
+
+    # sort it by target lengths (long to short)
+    sorted_data = sorted(data, key=lambda d: int(
+        d[1][1][batch_sort_key][batch_sort_axis]['shape'][0]), reverse=not shortest_first)
+    logging.info('# utts: ' + str(len(sorted_data)))
+    if count == "seq":
+        raise ValueError(f"mini batch count based on seq is not supported now.")
+    if count == "bin":
+        batches = batchfy_by_bini_for_vc(
+            sorted_data,
+            batch_bins=batch_bins,
+            min_batch_size=min_batch_size,
+            shortest_first=shortest_first,
+            ikey=ikey, okey=okey)
+    if count == "frame":
+        raise ValueError(f"mini batch count based on frame is not supported now.")
+    batches_list.append(batches)
+
+    if len(batches_list) == 1:
+        batches = batches_list[0]
+    else:
+        # Concat list. This way is faster than "sum(batch_list, [])"
+        batches = list(itertools.chain(*batches_list))
+
+    # for debugging
+    if num_batches > 0:
+        batches = batches[:num_batches]
+    logging.info('# minibatches: ' + str(len(batches)))
+
+    # batch: List[List[Tuple[str, dict]]]
+    return batches
