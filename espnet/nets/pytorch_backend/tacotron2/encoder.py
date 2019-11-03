@@ -177,7 +177,7 @@ class EncoderNoEmb(torch.nn.Module):
             dropout_rate (float, optional) Dropout rate.
 
         """
-        super(Encoder, self).__init__()
+        super(EncoderNoEmb, self).__init__()
         # store the hyperparameters
         self.idim = idim
         self.use_residual = use_residual

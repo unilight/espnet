@@ -231,6 +231,7 @@ if [ ${n_average} -gt 0 ]; then
     model=model.last${n_average}.avg.best
 fi
 outdir=${expdir}/outputs_${model}_$(basename ${decode_config%.*})
+echo $outdir
 if [ ${stage} -le 4 ] && [ ${stop_stage} -ge 4 ]; then
     echo "stage 4: Decoding"
     if [ ${n_average} -gt 0 ]; then
@@ -298,6 +299,7 @@ if [ ${stage} -le 5 ] && [ ${stop_stage} -ge 5 ]; then
             ${outdir}_denorm/${name} \
             ${outdir}_denorm/${name}/log \
             ${outdir}_denorm/${name}/wav
+    
     ) &
     pids+=($!) # store background pids
     done
@@ -311,8 +313,8 @@ if [ ${stage} -le 6 ] && [ ${stop_stage} -ge 6 ]; then
     # generate h5 for WaveNet vocoder
     for name in ${pair_dev_set} ${pair_eval_set}; do
         feats2hdf5.py \
-            --scp_file ${outdir}/${name}/feats.scp \
-            --out_dir ${outdir}/${name}/hdf5/
-        find "$(cd ${outdir}/${name}/hdf5; pwd)" -name "*.h5" > ${outdir}/${name}/hdf5/feats.scp
+            --scp_file ${outdir}_denorm/${name}/feats.scp \
+            --out_dir ${outdir}_denorm/${name}/hdf5/
+        find "$(cd ${outdir}_denorm/${name}/hdf5; pwd)" -name "*.h5" | head > ${outdir}_denorm/${name}/hdf5_feats.scp
     done
 fi

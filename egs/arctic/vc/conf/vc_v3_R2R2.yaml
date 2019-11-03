@@ -33,7 +33,7 @@ encoder-reduction-factor: 2
 
 # minibatch related
 batch-sort-key: input # shuffle or input or output
-batch-bins: 1113600    # 16 * (870 * 80 + 870 * 80) = 16 * 139200
+batch-bins: 2227200    # 16 * (870 * 80 + 870 * 80) = 16 * 139200
                       # batch-size * (max_out * dim_out + max_in * dim_in)
                       # resuling in 10 ~ 24 samples (avg 13 samples) in batch (969 batches per epochs) for ljspeech
 
@@ -60,11 +60,12 @@ modules-applied-guided-attn: ["encoder-decoder"]
 
 # optimization related
 opt: noam
-accum-grad: 6
+accum-grad: 3
 grad-clip: 1.0
 weight-decay: 0.0
 patience: 0
 epochs: 10000
 
 # other
-save-interval-epoch: 50
+save-interval-epoch: 100
+eval-interval-epoch: 100

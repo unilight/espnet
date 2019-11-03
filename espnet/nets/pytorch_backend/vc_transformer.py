@@ -373,7 +373,7 @@ class Transformer(TTSInterface, torch.nn.Module):
             # encoder prenet
             encoder_input_layer = torch.nn.Sequential(
                 EncoderPrenet(
-                    idim=idim,
+                    idim=idim * args.encoder_reduction_factor,
                     elayers=0,
                     econv_layers=args.eprenet_conv_layers,
                     econv_chans=args.eprenet_conv_chans,
@@ -385,7 +385,7 @@ class Transformer(TTSInterface, torch.nn.Module):
                 torch.nn.Linear(args.eprenet_conv_chans, args.adim)
             )
         else:
-            encoder_input_layer = torch.nn.Linear(idim, args.adim)
+            encoder_input_layer = torch.nn.Linear(idim * args.encoder_reduction_factor, args.adim)
         self.encoder = Encoder(
             idim=idim,
             attention_dim=args.adim,
@@ -550,8 +550,8 @@ class Transformer(TTSInterface, torch.nn.Module):
         if self.encoder_reduction_factor > 1:
             B, Lmax, idim = xs.shape
             if Lmax % self.encoder_reduction_factor != 0:
-                xs_ds = xs[:, : -(Lmax % self.encoder_reduction_factor), :]
-            xs_ds = xs_ds.contiguous().view(B, int(Lmax / self.encoder_reduction_factor), idim * self.encoder_reduction_factor)
+                xs = xs[:, : -(Lmax % self.encoder_reduction_factor), :]
+            xs_ds = xs.contiguous().view(B, int(Lmax / self.encoder_reduction_factor), idim * self.encoder_reduction_factor)
             ilens_ds = ilens.new([ilen // self.encoder_reduction_factor for ilen in ilens])
         else:
             xs_ds, ilens_ds = xs, ilens
@@ -625,7 +625,7 @@ class Transformer(TTSInterface, torch.nn.Module):
                     if idx + 1 == self.num_layers_applied_guided_attn:
                         break
                 att_ws = torch.cat(att_ws, dim=1)  # (B, H*L, T_in, T_in)
-                enc_attn_loss = self.attn_criterion(att_ws, ilens, ilens)
+                enc_attn_loss = self.attn_criterion(att_ws, ilens_ds, ilens_ds)
                 loss = loss + enc_attn_loss
                 report_keys += [{"enc_attn_loss": enc_attn_loss.item()}]
             # calculate for decoder
@@ -647,7 +647,7 @@ class Transformer(TTSInterface, torch.nn.Module):
                     if idx + 1 == self.num_layers_applied_guided_attn:
                         break
                 att_ws = torch.cat(att_ws, dim=1)  # (B, H*L, T_out, T_in)
-                enc_dec_attn_loss = self.attn_criterion(att_ws, ilens, olens_in)
+                enc_dec_attn_loss = self.attn_criterion(att_ws, ilens_ds, olens_in)
                 loss = loss + enc_dec_attn_loss
                 report_keys += [{"enc_dec_attn_loss": enc_dec_attn_loss.item()}]
 
@@ -687,8 +687,8 @@ class Transformer(TTSInterface, torch.nn.Module):
         if self.encoder_reduction_factor > 1:
             Lmax, idim = x.shape
             if Lmax % self.encoder_reduction_factor != 0:
-                x_ds = x[: -(Lmax % self.encoder_reduction_factor), :]
-            x_ds = x_ds.contiguous().view(int(Lmax / self.encoder_reduction_factor), idim * self.encoder_reduction_factor)
+                x = x[: -(Lmax % self.encoder_reduction_factor), :]
+            x_ds = x.contiguous().view(int(Lmax / self.encoder_reduction_factor), idim * self.encoder_reduction_factor)
         else:
             x_ds = x
 
@@ -767,8 +767,8 @@ class Transformer(TTSInterface, torch.nn.Module):
             if self.encoder_reduction_factor > 1:
                 B, Lmax, idim = xs.shape
                 if Lmax % self.encoder_reduction_factor != 0:
-                    xs_ds = xs[:, : -(Lmax % self.encoder_reduction_factor), :]
-                xs_ds = xs_ds.contiguous().view(B, int(Lmax / self.encoder_reduction_factor), idim * self.encoder_reduction_factor)
+                    xs = xs[:, : -(Lmax % self.encoder_reduction_factor), :]
+                xs_ds = xs.contiguous().view(B, int(Lmax / self.encoder_reduction_factor), idim * self.encoder_reduction_factor)
                 ilens_ds = ilens.new([ilen // self.encoder_reduction_factor for ilen in ilens])
             else:
                 xs_ds, ilens_ds = xs, ilens

@@ -1,7 +1,7 @@
-accum-grad: 6
+accum-grad: 3
 adim: 384
 aheads: 4
-batch-bins: 1113600
+batch-bins: 2227200
 batch-sort-key: input
 bce-pos-weight: 5.0
 decoder-concat-after: false
@@ -15,6 +15,7 @@ elayers: 6
 embed-dim: 0
 encoder-concat-after: false
 encoder-normalize-before: false
+encoder-reduction-factor: 2
 epochs: 10000
 eprenet-conv-chans: 0
 eprenet-conv-filts: 0
@@ -23,7 +24,6 @@ eprenet-dropout-rate: 0.0
 eunits: 1536
 eval-interval-epoch: 100
 grad-clip: 1.0
-guided-attn-loss-lambda: 100
 initial-decoder-alpha: 1.0
 initial-encoder-alpha: 1.0
 load-partial-pretrained-model: encoder
@@ -38,8 +38,8 @@ postnet-chans: 256
 postnet-dropout-rate: 0.5
 postnet-filts: 5
 postnet-layers: 5
-pretrained-model: downloads/mailabs.en_US.judy.transformer.v1.single/exp/en_US_judy_train_trim_pytorch_train_pytorch_transformer.v1.single/results/model.last1.avg.best
-reduction-factor: 1
+pretrained-model: downloads/mailabs.en_US.judy.transformer.v1.single.R2/exp/en_US_judy_train_trim_pytorch_train_pytorch_transformer.v1.single.R2/results/model.last1.avg.best
+reduction-factor: 2
 save-interval-epoch: 100
 transformer-dec-attn-dropout-rate: 0.1
 transformer-dec-dropout-rate: 0.1

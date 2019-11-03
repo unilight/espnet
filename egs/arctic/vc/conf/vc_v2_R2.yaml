@@ -66,4 +66,5 @@ patience: 0
 epochs: 10000
 
 # other
-save-interval-epoch: 50
+save-interval-epoch: 100
+eval-interval-epoch: 100
