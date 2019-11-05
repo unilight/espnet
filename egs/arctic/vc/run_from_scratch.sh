@@ -44,7 +44,6 @@ download_dir=downloads
 # dataset configuration
 srcspk=clb  # see local/data_prep.sh to check available speakers
 trgspk=slt
-pair=${srcspk}_${trgspk}
 
 # exp tag
 tag=""  # tag for managing experiments.
@@ -57,6 +56,7 @@ set -e
 set -u
 set -o pipefail
 
+pair=${srcspk}_${trgspk}
 src_org_set=${srcspk}
 src_train_set=${srcspk}_train_no_dev
 src_dev_set=${srcspk}_dev
@@ -89,15 +89,12 @@ if [ ${stage} -le 0 ] && [ ${stop_stage} -ge 0 ]; then
     utils/validate_data_dir.sh --no-feats data/${trg_org_set}
 fi
 
-src_feat_tr_dir=${dumpdir}/${pair}/${src_train_set}; mkdir -p ${src_feat_tr_dir}
-src_feat_dt_dir=${dumpdir}/${pair}/${src_dev_set}; mkdir -p ${src_feat_dt_dir}
-src_feat_ev_dir=${dumpdir}/${pair}/${src_eval_set}; mkdir -p ${src_feat_ev_dir}
-trg_feat_tr_dir=${dumpdir}/${pair}/${trg_train_set}; mkdir -p ${trg_feat_tr_dir}
-trg_feat_dt_dir=${dumpdir}/${pair}/${trg_dev_set}; mkdir -p ${trg_feat_dt_dir}
-trg_feat_ev_dir=${dumpdir}/${pair}/${trg_eval_set}; mkdir -p ${trg_feat_ev_dir}
-pair_tr_dir=${dumpdir}/${pair}/${pair_train_set}; mkdir -p ${pair_tr_dir}
-pair_dt_dir=${dumpdir}/${pair}/${pair_dev_set}; mkdir -p ${pair_dt_dir}
-pair_ev_dir=${dumpdir}/${pair}/${pair_eval_set}; mkdir -p ${pair_ev_dir}
+src_feat_tr_dir=${dumpdir}/${src_train_set}; mkdir -p ${src_feat_tr_dir}
+src_feat_dt_dir=${dumpdir}/${src_dev_set}; mkdir -p ${src_feat_dt_dir}
+src_feat_ev_dir=${dumpdir}/${src_eval_set}; mkdir -p ${src_feat_ev_dir}
+trg_feat_tr_dir=${dumpdir}/${trg_train_set}; mkdir -p ${trg_feat_tr_dir}
+trg_feat_dt_dir=${dumpdir}/${trg_dev_set}; mkdir -p ${trg_feat_dt_dir}
+trg_feat_ev_dir=${dumpdir}/${trg_eval_set}; mkdir -p ${trg_feat_ev_dir}
 if [ ${stage} -le 1 ] && [ ${stop_stage} -ge 1 ]; then
     ### Task dependent. You have to design training and dev name by yourself.
     ### But you can utilize Kaldi recipes in most cases
@@ -152,19 +149,22 @@ if [ ${stage} -le 1 ] && [ ${stop_stage} -ge 1 ]; then
 
     # dump features for training
     dump.sh --cmd "$train_cmd" --nj ${nj} --do_delta false \
-        data/${src_train_set}/feats.scp ${cmvn} exp/dump_feats/${pair}/${src_train_set} ${src_feat_tr_dir}
+        data/${src_train_set}/feats.scp ${cmvn} exp/dump_feats/${src_train_set} ${src_feat_tr_dir}
     dump.sh --cmd "$train_cmd" --nj ${nj} --do_delta false \
-        data/${src_dev_set}/feats.scp ${cmvn} exp/dump_feats/${pair}/${src_dev_set} ${src_feat_dt_dir}
+        data/${src_dev_set}/feats.scp ${cmvn} exp/dump_feats/${src_dev_set} ${src_feat_dt_dir}
     dump.sh --cmd "$train_cmd" --nj ${nj} --do_delta false \
-        data/${src_eval_set}/feats.scp ${cmvn} exp/dump_feats/${pair}/${src_eval_set} ${src_feat_ev_dir}
+        data/${src_eval_set}/feats.scp ${cmvn} exp/dump_feats/${src_eval_set} ${src_feat_ev_dir}
     dump.sh --cmd "$train_cmd" --nj ${nj} --do_delta false \
-        data/${trg_train_set}/feats.scp ${cmvn} exp/dump_feats/${pair}/${trg_train_set} ${trg_feat_tr_dir}
+        data/${trg_train_set}/feats.scp ${cmvn} exp/dump_feats/${trg_train_set} ${trg_feat_tr_dir}
     dump.sh --cmd "$train_cmd" --nj ${nj} --do_delta false \
-        data/${trg_dev_set}/feats.scp ${cmvn} exp/dump_feats/${pair}/${trg_dev_set} ${trg_feat_dt_dir}
+        data/${trg_dev_set}/feats.scp ${cmvn} exp/dump_feats/${trg_dev_set} ${trg_feat_dt_dir}
     dump.sh --cmd "$train_cmd" --nj ${nj} --do_delta false \
-        data/${trg_eval_set}/feats.scp ${cmvn} exp/dump_feats/${pair}/${trg_eval_set} ${trg_feat_ev_dir}
+        data/${trg_eval_set}/feats.scp ${cmvn} exp/dump_feats/${trg_eval_set} ${trg_feat_ev_dir}
 fi
 
+pair_tr_dir=${dumpdir}/${pair_train_set}; mkdir -p ${pair_tr_dir}
+pair_dt_dir=${dumpdir}/${pair_dev_set}; mkdir -p ${pair_dt_dir}
+pair_ev_dir=${dumpdir}/${pair_eval_set}; mkdir -p ${pair_ev_dir}
 # dummy dict
 dict=downloads/mailabs.en_US.judy.transformer.v1.single/data/lang_1char/en_US_judy_train_trim_units.txt
 echo "dictionary: ${dict}"

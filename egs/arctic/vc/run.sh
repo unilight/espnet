@@ -43,10 +43,16 @@ griffin_lim_iters=64  # the number of iterations of Griffin-Lim
 download_dir=downloads
 pretrained_model="mailabs.en_US.judy.transformer.v1.single"  # see model info in local/pretrained_model_download.sh
 
+# objective evaluation related
+db_root=downloads
+asr_model="librispeech.transformer.ngpu4"
+eval_model=true                                # true: evaluate trained model, false: evaluate ground truth
+wer=true                                       # true: evaluate CER & WER, false: evaluate only CER
+wnv=true                                       # true: evaluate wnv generated speech, false: evaluate GL recovered
+
 # dataset configuration
 srcspk=clb  # see local/data_prep.sh to check available speakers
 trgspk=slt
-pair=${srcspk}_${trgspk}
 
 # exp tag
 tag=""  # tag for managing experiments.
@@ -59,6 +65,7 @@ set -e
 set -u
 set -o pipefail
 
+pair=${srcspk}_${trgspk}
 src_org_set=${srcspk}
 src_train_set=${srcspk}_train_no_dev
 src_dev_set=${srcspk}_dev
@@ -266,13 +273,6 @@ if [ ${stage} -le 4 ] && [ ${stop_stage} -ge 4 ]; then
     i=0; for pid in "${pids[@]}"; do wait ${pid} || ((i++)); done
     [ ${i} -gt 0 ] && echo "$0: ${i} background jobs are failed." && false
     
-    # generate h5 for WaveNet vocoder
-    for name in ${pair_dev_set} ${pair_eval_set}; do
-        feats2hdf5.py \
-            --scp_file ${outdir}/${name}/feats.scp \
-            --out_dir ${outdir}/${name}/hdf5/
-        find "$(cd ${outdir}/${name}/hdf5; pwd)" -name "*.h5" > ${outdir}/${name}/hdf5/feats.scp
-    done
 
 fi
 
@@ -317,4 +317,27 @@ if [ ${stage} -le 6 ] && [ ${stop_stage} -ge 6 ]; then
             --out_dir ${outdir}_denorm/${name}/hdf5/
         find "$(cd ${outdir}_denorm/${name}/hdf5; pwd)" -name "*.h5" | head > ${outdir}_denorm/${name}/hdf5_feats.scp
     done
+fi
+
+if [ ${stage} -le 7 ] && [ ${stop_stage} -ge 7 ]; then
+    echo "stage 7: Objective Evaluation: CER"
+
+    for set_type in dev eval; do
+
+        local/ob_eval/evaluate_cer.sh --nj ${nj} \
+            --do_delta false \
+            --eval_model ${eval_model} \
+            --db_root ${db_root} \
+            --backend pytorch \
+            --wer ${wer} \
+            --wnv ${wnv} \
+            --api v2 \
+            ${asr_model} \
+            ${outdir} \
+            ${srcspk}_${trgspk}_${set_type} \
+            ${trgspk}_${set_type} \
+            ${trgspk}
+    done
+
+    echo "Finished."
 fi
