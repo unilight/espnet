@@ -14,15 +14,15 @@ stop_stage=100
 ngpu=1       # number of gpus ("0" uses cpu, otherwise use gpu)
 nj=32        # numebr of parallel jobs
 dumpdir=dump # directory to dump full features
-verbose=0    # verbose option (if set > 0, get more log)
+verbose=1    # verbose option (if set > 0, get more log)
 N=0          # number of minibatches to be used (mainly for debugging). "0" uses all minibatches.
 seed=1       # random seed number
 resume=""    # the snapshot path to resume (if set empty, no effect)
 
 # feature extraction related
 fs=22050      # sampling frequency
-fmax=""       # maximum frequency
-fmin=""       # minimum frequency
+fmax=7600     # maximum frequency
+fmin=80       # minimum frequency
 n_mels=80     # number of mel basis
 n_fft=1024    # number of fft points
 n_shift=256   # number of shift points
@@ -37,6 +37,13 @@ train_config=conf/train_pytorch_tacotron2.yaml # you can select from conf or con
                                                # now we support tacotron2, transformer, and fastspeech
                                                # see more info in the header of each config.
 decode_config=conf/decode.yaml
+
+# knowledge distillation related
+teacher_model_path=""
+teacher_decode_config=conf/decode_for_knowledge_dist.yaml
+do_filtering=false     # whether to do filtering using focus rate
+focus_rate_thres=0.65  # for phn taco2 around 0.65, phn transformer around 0.9
+                       # if you want to do filtering please carefully check this threshold
 
 # decoding related
 model=model.loss.best
@@ -68,7 +75,7 @@ eval_set="${trans_type}_eval"
 
 if [ ${stage} -le -1 ] && [ ${stop_stage} -ge -1 ]; then
     echo "stage -1: Data Download"
-    local/download.sh ${db_root}
+    local/data_download.sh ${db_root}
 fi
 
 if [ ${stage} -le 0 ] && [ ${stop_stage} -ge 0 ]; then
@@ -150,8 +157,30 @@ expdir=exp/${expname}
 mkdir -p ${expdir}
 if [ ${stage} -le 3 ] && [ ${stop_stage} -ge 3 ]; then
     echo "stage 3: Text-to-speech model training"
-    tr_json=${feat_tr_dir}/data.json
-    dt_json=${feat_dt_dir}/data.json
+    if [ -n "${teacher_model_path}" ] && echo "${train_config}" | grep -q "fastspeech"; then
+        # setup feature and duration for fastspeech knowledge distillation training
+        teacher_expdir=$(dirname "$(dirname "${teacher_model_path}")")
+        teacher_outdir=outputs_$(basename ${teacher_model_path})_$(basename ${teacher_decode_config%.*})
+        teacher_outdir=${teacher_expdir}/${teacher_outdir}
+        if [ ! -e ${teacher_outdir}/.done ]; then
+            local/setup_knowledge_dist.sh \
+                --nj ${nj} \
+                --verbose ${verbose} \
+                --dict ${dict} \
+                --trans_type ${trans_type} \
+                --teacher_model_path ${teacher_model_path} \
+                --decode_config ${teacher_decode_config} \
+                --train_set ${train_set} \
+                --dev_set ${dev_set} \
+                --do_filtering ${do_filtering} \
+                --focus_rate_thres ${focus_rate_thres}
+        fi
+        tr_json=${teacher_outdir}/dump/${train_set}/data.json
+        dt_json=${teacher_outdir}/dump/${dev_set}/data.json
+    else
+        tr_json=${feat_tr_dir}/data.json
+        dt_json=${feat_dt_dir}/data.json
+    fi
     ${cuda_cmd} --gpu ${ngpu} ${expdir}/train.log \
         tts_train.py \
            --backend ${backend} \
@@ -232,24 +261,27 @@ if [ ${stage} -le 5 ] && [ ${stop_stage} -ge 5 ]; then
     done
     i=0; for pid in "${pids[@]}"; do wait ${pid} || ((i++)); done
     [ ${i} -gt 0 ] && echo "$0: ${i} background jobs are failed." && false
-    echo "Finished."
 fi
 
 if [ ${stage} -le 6 ] && [ ${stop_stage} -ge 6 ]; then
     echo "stage 6: Objective Evaluation"
-
+    pids=() # initialize pids
     for name in ${dev_set} ${eval_set}; do
+    (
         local/ob_eval/evaluate_cer.sh --nj ${nj} \
             --do_delta false \
             --eval_tts_model ${eval_tts_model} \
-            --db_root ${db_root} \
+            --db_root ${db_root}/LJSpeech-1.1 \
             --backend pytorch \
             --wer ${wer} \
             --api v2 \
             ${asr_model} \
             ${outdir} \
             ${name}
+    ) &
+    pids+=($!) # store background pids
     done
-
+    i=0; for pid in "${pids[@]}"; do wait ${pid} || ((i++)); done
+    [ ${i} -gt 0 ] && echo "$0: ${i} background jobs are failed." && false
     echo "Finished."
 fi

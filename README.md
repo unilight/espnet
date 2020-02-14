@@ -2,6 +2,7 @@
 
 # ESPnet: end-to-end speech processing toolkit
 
+[![Github Actions](https://github.com/espnet/espnet/workflows/CI/badge.svg)](https://github.com/espnet/espnet/actions)
 [![Build Status](https://travis-ci.org/espnet/espnet.svg?branch=master)](https://travis-ci.org/espnet/espnet)
 [![CircleCI](https://circleci.com/gh/espnet/espnet.svg?style=svg)](https://circleci.com/gh/espnet/espnet)
 [![codecov](https://codecov.io/gh/espnet/espnet/branch/master/graph/badge.svg)](https://codecov.io/gh/espnet/espnet)
@@ -36,6 +37,8 @@ and also follows [Kaldi](http://kaldi-asr.org/) style data processing, feature e
   * [ASR demo](#asr-demo)
   * [TTS results](#tts-results)
   * [TTS demo](#tts-demo)
+  * [ST results](#st-results)
+  * [ST demo](#st-demo)
 * [Chainer and Pytorch backends](#chainer-and-pytorch-backends)
 * [References](#references)
 * [Citation](#citation)
@@ -49,16 +52,23 @@ and also follows [Kaldi](http://kaldi-asr.org/) style data processing, feature e
 - Attention: Dot product, location-aware attention, variants of multihead
 - Incorporate RNNLM/LSTMLM trained only with text data
 - Batch GPU decoding
+- Transducer based end-to-end ASR
+  - Available: RNN-Transducer, Transformer-Transducer, Transformer/RNN-Transducer
+  - Support attention extension and VGG-Transformer (encoder)
 - Tacotron2 based end-to-end TTS
 - Transformer based end-to-end TTS
 - Feed-forward Transformer (a.k.a. FastSpeech) based end-to-end TTS (new!)
+- Transformer based end-to-end ST (new!)
+- Transformer based end-to-end MT (new!)
 - Flexible network architecture thanks to chainer and pytorch
 - Kaldi style complete recipe
   - Support numbers of ASR recipes (WSJ, Switchboard, CHiME-4/5, Librispeech, TED, CSJ, AMI, HKUST, Voxforge, REVERB, etc.)
   - Support numbers of TTS recipes with a similar manner to the ASR recipe (LJSpeech, LibriTTS, M-AILABS, etc.)
-  - Support speech translation recipes (Fisher callhome Spanish to English, IWSLT'18)
+  - Support numbers of ST recipes (Fisher-CallHome Spanish, Libri-trans, IWSLT'18, How2, Must-C, Mboshi-French, etc.)
+  - Support numbers of MT recipes (IWSLT'16, the above ST recipes etc.)
   - Support speech separation and recognition recipe (WSJ-2mix)
-- State-of-the-art performance in several benchmarks (comparable/superior to hybrid DNN/HMM and CTC)
+- State-of-the-art performance in several ASR benchmarks (comparable/superior to hybrid DNN/HMM and CTC)
+- State-of-the-art performance in several ST benchmarks (comparable/superior to cascaded ASR and MT)
 - Flexible front-end processing thanks to [kaldiio](https://github.com/nttcslab-sp/kaldiio) and HDF5 support
 - Tensorboard based monitoring
 
@@ -79,6 +89,20 @@ Optionally, GPU environment requires the following libraries:
 - Cuda 8.0, 9.0, 9.1, 10.0 depending on each DNN library
 - Cudnn 6+, 7+
 - NCCL 2.0+ (for the use of multi-GPUs)
+
+## Supported Linux distributions and other requirements
+
+We support the following Linux distributions with CI. If you want to build your own Linux by yourself, 
+please also check our [CI configurations](https://github.com/espnet/espnet/blob/master/.circleci/config.yml).
+to prepare the appropriate environments
+
+- ubuntu18
+- ubuntu16
+- centos7
+- debian9
+
+Also, we have several other requirements to install Kaldi. You can follow the [Kaldi install instruction](https://github.com/kaldi-asr/kaldi/blob/master/INSTALL)
+or our Kaldi installation in CI with prebuilt Kaldi binaries in https://github.com/espnet/espnet/blob/master/ci/install_kaldi.sh
 
 ## Installation
 
@@ -375,30 +399,32 @@ go to docker/ and follow [README.md](https://github.com/espnet/espnet/tree/maste
 
 ## Results and demo
 
+You can find useful tutorials and demos in [Interspeech 2019 Tutorial](https://github.com/espnet/interspeech2019-tutorial)
+
 ### ASR results
 
 We list the character error rate (CER) and word error rate (WER) of major ASR tasks.
 
-|           | CER (%) | WER (%)  | Pretrained model |
-|-----------|:----:|:----:|:----:|
-| Aishell dev            |  6.0 |  N/A | [link](https://github.com/espnet/espnet/blob/master/egs/aishell/asr1/RESULTS.md#transformer-result-default-transformer-with-initial-learning-rate--10-and-epochs--50) |
-| Aishell test           |  6.7 |  N/A | same as above |
-| Common Voice dev       |  1.7 |  2.2 | [link](https://github.com/espnet/espnet/blob/master/egs/commonvoice/asr1/RESULTS.md#first-results-default-pytorch-transformer-setting-with-bpe-100-epochs-single-gpu) |
-| Common Voice test      |  1.8 |  2.3 | same as above |
-| CSJ eval1              |  5.7 |  N/A | N/A |
-| CSJ eval2              |  4.1 |  N/A | N/A |
-| CSJ eval3              |  4.5 |  N/A | N/A |
-| HKUST dev              | 23.5 |  N/A | [link](https://github.com/espnet/espnet/blob/master/egs/hkust/asr1/RESULTS.md#transformer-only-20-epochs) |
-| Librispeech dev_clean  |  N/A |  2.2 | [link](https://github.com/espnet/espnet/blob/master/egs/librispeech/asr1/RESULTS.md#pytorch-large-transformer-with-specaug-4-gpus--large-lm) |
-| Librispeech dev_other  |  N/A |  5.6 | same as above |
-| Librispeech test_clean |  N/A |  2.6 | same as above |
-| Librispeech test_other |  N/A |  5.7 | same as above |
-| TEDLIUM2 dev           |  N/A | 9.3 | [link](https://github.com/espnet/espnet/blob/master/egs/tedlium2/asr1/RESULTS.md#transformer-large-model--specaug--large-lm) |
-| TEDLIUM2 test          |  N/A | 8.1 | same as above |
-| TEDLIUM3 dev           |  N/A | 9.7 | [link](https://github.com/espnet/espnet/blob/master/egs/tedlium3/asr1/RESULTS.md#transformer-elayers12-dlayers6-units2048-8-gpus-specaug--large-lm) |
-| TEDLIUM3 test          |  N/A | 8.0| same as above |
-| WSJ dev93              |  3.2 |  7.0 | N/A |
-| WSJ eval92             |  2.1 |  4.7 | N/A |
+| Task                   | CER (%) | WER (%) | Pretrained model                                                                                                                                                      |
+| -----------            | :----:  | :----:  | :----:                                                                                                                                                                |
+| Aishell dev            | 6.0     | N/A     | [link](https://github.com/espnet/espnet/blob/master/egs/aishell/asr1/RESULTS.md#transformer-result-default-transformer-with-initial-learning-rate--10-and-epochs--50) |
+| Aishell test           | 6.7     | N/A     | same as above                                                                                                                                                         |
+| Common Voice dev       | 1.7     | 2.2     | [link](https://github.com/espnet/espnet/blob/master/egs/commonvoice/asr1/RESULTS.md#first-results-default-pytorch-transformer-setting-with-bpe-100-epochs-single-gpu) |
+| Common Voice test      | 1.8     | 2.3     | same as above                                                                                                                                                         |
+| CSJ eval1              | 5.7     | N/A     | [link](https://github.com/espnet/espnet/blob/master/egs/csj/asr1/RESULTS.md#pytorch-backend-transformer-without-any-hyperparameter-tuning)                            |
+| CSJ eval2              | 3.8     | N/A     | same as above                                                                                                                                                         |
+| CSJ eval3              | 4.2     | N/A     | same as above                                                                                                                                                         |
+| HKUST dev              | 23.5    | N/A     | [link](https://github.com/espnet/espnet/blob/master/egs/hkust/asr1/RESULTS.md#transformer-only-20-epochs)                                                             |
+| Librispeech dev_clean  | N/A     | 2.1     | [link](https://github.com/espnet/espnet/blob/master/egs/librispeech/asr1/RESULTS.md#pytorch-large-transformer-with-specaug-4-gpus--transformer-lm-4-gpus)             |
+| Librispeech dev_other  | N/A     | 5.3     | same as above                                                                                                                                                         |
+| Librispeech test_clean | N/A     | 2.5     | same as above                                                                                                                                                         |
+| Librispeech test_other | N/A     | 5.5     | same as above                                                                                                                                                         |
+| TEDLIUM2 dev           | N/A     | 9.3     | [link](https://github.com/espnet/espnet/blob/master/egs/tedlium2/asr1/RESULTS.md#transformer-large-model--specaug--large-lm)                                          |
+| TEDLIUM2 test          | N/A     | 8.1     | same as above                                                                                                                                                         |
+| TEDLIUM3 dev           | N/A     | 9.7     | [link](https://github.com/espnet/espnet/blob/master/egs/tedlium3/asr1/RESULTS.md#transformer-elayers12-dlayers6-units2048-8-gpus-specaug--large-lm)                   |
+| TEDLIUM3 test          | N/A     | 8.0     | same as above                                                                                                                                                         |
+| WSJ dev93              |   3.2   |   7.4   | [link](https://github.com/espnet/espnet/blob/master/egs/wsj/asr1/RESULTS.md#transformer-pytorch-13--builtin-ctc)                                                      |
+| WSJ eval92             |   0.7   |   1.8   | same as above                                                                                                                                                         |
 
 Note that the performance of the CSJ, HKUST, and Librispeech tasks was significantly improved by using the wide network (#units = 1024) and large subword units if necessary reported by [RWTH](https://arxiv.org/pdf/1805.03294.pdf).
 
@@ -415,23 +441,87 @@ cd egs/tedlium2/asr1
 where `example.wav` is a WAV file to be recognized.
 The sampling rate must be consistent with that of data used in training.
 
-Available pretrained models are listed as below.
+Available pretrained models in the demo script are listed as below.
 
-| Model | Notes |
-|:------|:------|
-| [tedlium2.rnn.v1](https://drive.google.com/open?id=1UqIY6WJMZ4sxNxSugUqp3mrGb3j6h7xe) | Streaming decoding based on CTC-based VAD |
-| [tedlium2.rnn.v2](https://drive.google.com/open?id=1cac5Uc09lJrCYfWkLQsF8eapQcxZnYdf) | Streaming decoding based on CTC-based VAD (batch decoding) |
-| [tedlium2.transformer.v1](https://drive.google.com/open?id=1mgbiWabOSkh_oHJIDA-h7hekQ3W95Z_U) | Joint-CTC attention Transformer trained on Tedlium 2 |
-| [tedlium3.transformer.v1](https://drive.google.com/open?id=1wYYTwgvbB7uy6agHywhQfnuVWWW_obmO) | Joint-CTC attention Transformer trained on Tedlium 3 |
-| [librispeech.transformer.v1](https://drive.google.com/open?id=1BtQvAnsFvVi-dp_qsaFP7n4A_5cwnlR6) | Joint-CTC attention Transformer trained on Librispeech |
-| [commonvoice.transformer.v1](https://drive.google.com/open?id=1tWccl6aYU67kbtkm8jv5H6xayqg1rzjh) | Joint-CTC attention Transformer trained on CommonVoice |
+| Model                                                                                            | Notes                                                      |
+| :------                                                                                          | :------                                                    |
+| [tedlium2.rnn.v1](https://drive.google.com/open?id=1UqIY6WJMZ4sxNxSugUqp3mrGb3j6h7xe)            | Streaming decoding based on CTC-based VAD                  |
+| [tedlium2.rnn.v2](https://drive.google.com/open?id=1cac5Uc09lJrCYfWkLQsF8eapQcxZnYdf)            | Streaming decoding based on CTC-based VAD (batch decoding) |
+| [tedlium2.transformer.v1](https://drive.google.com/open?id=1mgbiWabOSkh_oHJIDA-h7hekQ3W95Z_U)    | Joint-CTC attention Transformer trained on Tedlium 2       |
+| [tedlium3.transformer.v1](https://drive.google.com/open?id=1wYYTwgvbB7uy6agHywhQfnuVWWW_obmO)    | Joint-CTC attention Transformer trained on Tedlium 3       |
+| [librispeech.transformer.v1](https://drive.google.com/open?id=1BtQvAnsFvVi-dp_qsaFP7n4A_5cwnlR6) | Joint-CTC attention Transformer trained on Librispeech     |
+| [commonvoice.transformer.v1](https://drive.google.com/open?id=1tWccl6aYU67kbtkm8jv5H6xayqg1rzjh) | Joint-CTC attention Transformer trained on CommonVoice     |
+| [csj.transformer.v1](https://drive.google.com/open?id=120nUQcSsKeY5dpyMWw_kI33ooMRGT2uF)         | Joint-CTC attention Transformer trained on CSJ             |
+
+
+### ST results
+
+We list 4-gram BLEU of major ST tasks.
+
+#### end-to-end system
+| Task | BLEU | Pretrained model |
+| ---- | :----: | :----: |
+| Fisher-CallHome Spanish fisher_test (Es->En)      | 48.39 | link |
+| Fisher-CallHome Spanish callhome_evltest (Es->En) | 18.67 | link |
+| Libri-trans test (En->Fr)                         | 16.70 | link |
+| How2 dev5 (En->Pt)                                | 45.68 | link |
+| Must-C tst-COMMON (En->De)                        | 22.91 | link |
+| Mboshi-French dev (Fr->Mboshi)                    | 6.18  | N/A  |
+
+#### cascaded system
+| Task | BLEU | Pretrained model |
+| ---- | :----: | :----: |
+| Fisher-CallHome Spanish fisher_test (Es->En)      | 42.16 | link |
+| Fisher-CallHome Spanish callhome_evltest (Es->En) | 19.82 | link |
+| Libri-trans test (En->Fr)                         | 16.96 | link |
+| How2 dev5 (En->Pt)                                | 44.90 | link |
+| Must-C tst-COMMON (En->De)                        | 23.65 | link |
+
+If you want to check the results of the other recipes, please check `egs/<name_of_recipe>/st1/RESULTS.md`.
+
+### ST demo
+
+(**New!**) We made a new real-time E2E-ST + TTS demonstration in Google Colab.  
+Please access the notebook from the following button and enjoy the real-time speech-to-speech translation!
+
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/espnet/notebook/blob/master/st_demo.ipynb)
+
+---
+
+You can translate speech in a WAV file using pretrained models.
+Go to a recipe directory and run `utils/translate_wav.sh` as follows:
+```sh
+cd egs/fisher_callhome_spanish/st1/
+wget -O - https://github.com/espnet/espnet/files/4100928/test.wav.tar.gz | tar zxvf - ../../../utils/translate_wav.sh --models fisher_callhome_spanish.transformer.v1.es-en test.wav
+```
+where `test.wav` is a WAV file to be translated.
+The sampling rate must be consistent with that of data used in training.
+
+Available pretrained models in the demo script are listed as below.
+
+| Model                                                                                            | Notes                                                      |
+| :------                                                                                          | :------                                                    |
+| [fisher_callhome_spanish.transformer.v1](https://drive.google.com/open?id=1hawp5ZLw4_SIHIT3edglxbKIIkPVe8n3)            | Transformer-ST trained on Fisher-CallHome Spanish Es->En                  |
+
+
+### MT results
+
+| Task | BLEU | Pretrained model |
+| ---- | :----: | :----: |
+| Fisher-CallHome Spanish fisher_test (Es->En)      | 61.45 | link |
+| Fisher-CallHome Spanish callhome_evltest (Es->En) | 29.86 | link |
+| Libri-trans test (En->Fr)                         | 18.09 | link |
+| How2 dev5 (En->Pt)                                | 58.61 | [link]() |
+| Must-C tst-COMMON (En->De)                        | 27.63 | link |
+| IWSLT'14 test2014 (En->De)                        | 24.70 | link |
+| IWSLT'14 test2014 (De->En)                        | 29.22 | link |
+| IWSLT'16 test2014 (En->De)                        | 24.05 | [link](https://drive.google.com/open?id=1o150rdEhPubN1i36TK_dWktFkxuL-X19) |
+| IWSLT'16 test2014 (De->En)                        | 29.13 | [link](https://drive.google.com/open?id=1o150rdEhPubN1i36TK_dWktFkxuL-X19) |
 
 
 ### TTS results
 
 You can listen to our samples in demo HP [espnet-tts-sample](https://espnet.github.io/espnet-tts-sample/).
-If you want to check more and more samples, please access our google drive from [our google drive](https://drive.google.com/open?id=1bQGuqH92xuxOX__reWLP4-cif0cbpMLX).
-
 Here we list some notable ones:
 
 - [Single English speaker Tacotron2](https://drive.google.com/open?id=18JgsOCWiP_JkhONasTplnHS7yaF_konr)
@@ -440,87 +530,123 @@ Here we list some notable ones:
 - [Multi English speaker Tacotron2](https://drive.google.com/open?id=18S_B8Ogogij34rIfJOeNF8D--uG7amz2)
 - [Single English speaker Transformer](https://drive.google.com/open?id=14EboYVsMVcAq__dFP1p6lyoZtdobIL1X)
 - [Single English speaker FastSpeech](https://drive.google.com/open?id=1PSxs1VauIndwi8d5hJmZlppGRVu2zuy5)
-- [Multi English speaker Tranformer](https://drive.google.com/open?id=1_vrdqjM43DdN1Qz7HJkvMQ6lCMmWLeGp)
+- [Multi English speaker Transformer](https://drive.google.com/open?id=1_vrdqjM43DdN1Qz7HJkvMQ6lCMmWLeGp)
 - [Single Italian speaker FastSpeech](https://drive.google.com/open?id=13I5V2w7deYFX4DlVk1-0JfaXmUR2rNOv)
 - [Single Mandarin speaker Transformer](https://drive.google.com/open?id=1mEnZfBKqA4eT6Bn0eRZuP6lNzL-IL3VD)
-- [Single Mandarin speaker FastSpeech (New!)](https://drive.google.com/open?id=1Ol_048Tuy6BgvYm1RpjhOX4HfhUeBqdK)
-- [Multi Japanese speaker Transformer (New!)](https://drive.google.com/open?id=1fFMQDF6NV5Ysz48QLFYE8fEvbAxCsMBw)
+- [Single Mandarin speaker FastSpeech](https://drive.google.com/open?id=1Ol_048Tuy6BgvYm1RpjhOX4HfhUeBqdK)
+- [Multi Japanese speaker Transformer](https://drive.google.com/open?id=1fFMQDF6NV5Ysz48QLFYE8fEvbAxCsMBw)
+- [Single English speaker models with Parallel WaveGAN](https://drive.google.com/open?id=1HvB0_LDf1PVinJdehiuCt5gWmXGguqtx)
+- [Single English speaker knowledge distillation-based FastSpeech (New!)](https://drive.google.com/open?id=1wG-Y0itVYalxuLAHdkAHO7w1CWFfRPF4)
 
-> Note that the most of the samples in googlg drive uses Griffin-Lim Algorithm to convert wav.
-> You can listen to WaveNet vocoder samples in our demo HP.
+You can download all of the pretrained models and generated samples:
+- [All of the pretrained E2E-TTS models](https://drive.google.com/open?id=1k9RRyc06Zl0mM2A7mi-hxNiNMFb_YzTF)
+- [All of the generated samples](https://drive.google.com/open?id=1bQGuqH92xuxOX__reWLP4-cif0cbpMLX)
 
-All of the pretrained models which generate the above samples are also available in [our google drive](https://drive.google.com/open?id=1k9RRyc06Zl0mM2A7mi-hxNiNMFb_YzTF).
+Note that in the generated samples we use three vocoders: Griffin-Lim (**GL**), WaveNet vocoder (**WaveNet**), and Parallel WaveGAN (**ParallelWaveGAN**).
+The neural vocoders are based on following repositories.
+- [kan-bayashi/ParallelWaveGAN](https://github.com/kan-bayashi/ParallelWaveGAN): Parallel WaveGAN
+- [r9y9/wavenet_vocoder](https://github.com/r9y9/wavenet_vocoder): 16 bit mixture of Logistics WaveNet vocoder
+- [kan-bayashi/PytorchWaveNetVocoder](https://github.com/kan-bayashi/PytorchWaveNetVocoder): 8 bit Softmax WaveNet Vocoder with the noise shaping
+
+If you want to build your own neural vocoder, please check the above repositories.
+
+Here we list all of the pretrained neural vocoders. Please download and enjoy the generation of high quality speech!
+
+| Model link                                                                                           | Lang  | Fs [Hz] | Mel range [Hz] | FFT / Shift / Win [pt] | Model type                                                              |
+| :------                                                                                              | :---: | :----:  | :--------:     | :---------------:      | :------                                                                 |
+| [ljspeech.wavenet.softmax.ns.v1](https://drive.google.com/open?id=1eA1VcRS9jzFa-DovyTgJLQ_jmwOLIi8L) | EN    | 22.05k  | None           | 1024 / 256 / None      | [Softmax WaveNet](https://github.com/kan-bayashi/PytorchWaveNetVocoder) |
+| [ljspeech.wavenet.mol.v1](https://drive.google.com/open?id=1sY7gEUg39QaO1szuN62-Llst9TrFno2t)        | EN    | 22.05k  | None           | 1024 / 256 / None      | [MoL WaveNet](https://github.com/r9y9/wavenet_vocoder)                  |
+| [ljspeech.parallel_wavegan.v1](https://drive.google.com/open?id=1tv9GKyRT4CDsvUWKwH3s_OfXkiTi0gw7)   | EN    | 22.05k  | None           | 1024 / 256 / None      | [Parallel WaveGAN](https://github.com/kan-bayashi/ParallelWaveGAN)      |
+| [ljspeech.wavenet.mol.v2](https://drive.google.com/open?id=1es2HuKUeKVtEdq6YDtAsLNpqCy4fhIXr)        | EN    | 22.05k  | 80-7600        | 1024 / 256 / None      | [MoL WaveNet](https://github.com/r9y9/wavenet_vocoder)                  |
+| [ljspeech.parallel_wavegan.v2](https://drive.google.com/open?id=1Grn7X9wD35UcDJ5F7chwdTqTa4U7DeVB)   | EN    | 22.05k  | 80-7600        | 1024 / 256 / None      | [Parallel WaveGAN](https://github.com/kan-bayashi/ParallelWaveGAN)      |
+| [libritts.wavenet.mol.v1](https://drive.google.com/open?id=1jHUUmQFjWiQGyDd7ZeiCThSjjpbF_B4h)        | EN    | 24k     | None           | 1024 / 256 / None      | [MoL WaveNet](https://github.com/r9y9/wavenet_vocoder)                  |
+| [jsut.wavenet.mol.v1](https://drive.google.com/open?id=187xvyNbmJVZ0EZ1XHCdyjZHTXK9EcfkK)            | JP    | 24k     | 80-7600        | 2048 / 300 / 1200      | [MoL WaveNet](https://github.com/r9y9/wavenet_vocoder)                  |
+| [jsut.parallel_wavegan.v1](https://drive.google.com/open?id=1OwrUQzAmvjj1x9cDhnZPp6dqtsEqGEJM)       | JP    | 24k     | 80-7600        | 2048 / 300 / 1200      | [Parallel WaveGAN](https://github.com/kan-bayashi/ParallelWaveGAN)      |
+| [csmsc.wavenet.mol.v1](https://drive.google.com/open?id=1PsjFRV5eUP0HHwBaRYya9smKy5ghXKzj)           | ZH    | 24k     | 80-7600        | 2048 / 300 / 1200      | [MoL WaveNet](https://github.com/r9y9/wavenet_vocoder)                  |
+| [csmsc.parallel_wavegan.v1](https://drive.google.com/open?id=10M6H88jEUGbRWBmU1Ff2VaTmOAeL8CEy)      | ZH    | 24k     | 80-7600        | 2048 / 300 / 1200      | [Parallel WaveGAN](https://github.com/kan-bayashi/ParallelWaveGAN)      |
+
+If you want to use the above pretrained vocoders, please exactly match the feature setting with them.
 
 
 ### TTS demo
 
+(**New!**) We made a new real-time E2E-TTS demonstration in Google Colab.  
+Please access the notebook from the following button and enjoy the real-time synthesis!
+
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/espnet/notebook/blob/master/tts_realtime_demo.ipynb)
+
+---
+
 You can synthesize speech in a TXT file using pretrained models.
 Go to a recipe directory and run `utils/synth_wav.sh` as follows:
+
 ```sh
 cd egs/ljspeech/tts1
 echo "THIS IS A DEMONSTRATION OF TEXT TO SPEECH." > example.txt
 ../../../utils/synth_wav.sh example.txt
 ```
+
 You can change the pretrained model as follows:
+
 ```sh
-../../../utils/synth_wav.sh --models ljspeech.tacotron2.v1 example.txt
+../../../utils/synth_wav.sh --models ljspeech.fastspeech.v1 example.txt
 ```
 
-Available pretrained models are listed as follows:
-
-| Model | Notes |
-|:------|:------|
-| [libritts.tacotron2.v1](https://drive.google.com/open?id=1iAXwC0AuWusa9AcFeUVkcNLG0I-hnSr3) | Multi-speaker Tacotron 2 with reduction factor = 2 |
-| [ljspeech.tacotron2.v1](https://drive.google.com/open?id=1dKzdaDpOkpx7kWZnvrvx2De7eZEdPHZs) | Tactoron 2 with reduction factor = 2|
-| [ljspeech.tacotron2.v2](https://drive.google.com/open?id=11T9qw8rJlYzUdXvFjkjQjYrp3iGfQ15h) | Tacotron 2 with forward attention |
-| [ljspeech.tacotron2.v3](https://drive.google.com/open?id=1hiZn14ITUDM1nkn-GkaN_M3oaTOUcn1n) | Tacotron 2 with guided attention loss |
-| [ljspeech.transformer.v1](https://drive.google.com/open?id=13DR-RB5wrbMqBGx_MC655VZlsEq52DyS) | Deep Transformer |
-| [ljspeech.transformer.v2](https://drive.google.com/open?id=1xxAwPuUph23RnlC5gym7qDM02ZCW9Unp) | Shallow Transformer with reduction factor = 3 |
-| [ljspeech.transformer.v3 (New!)](https://drive.google.com/open?id=1M_w7nxI6AfbtSHpMO-exILnAc_aUYvXP) | Deep Transformer (phoneme input) |
-| [ljspeech.fastspeech.v1](https://drive.google.com/open?id=17RUNFLP4SSTbGA01xWRJo7RkR876xM0i) | Feed-forward Transformer with position-wise FFN |
-| [ljspeech.fastspeech.v2](https://drive.google.com/open?id=1zD-2GMrWM3thaDpS3h3rkTU4jIC0wc5B) | Feed-forward Transformer with CNN instead of position-wise FFN |
-| [ljspeech.fastspeech.v3 (New!)](https://drive.google.com/open?id=1zD-2GMrWM3thaDpS3h3rkTU4jIC0wc5B) | Feed-forward Transformer with CNN instead of position-wise FFN and postnet (phoneme input)|
-| [libritts.transformer.v1 (New!)](https://drive.google.com/open?id=1Xj73mDPuuPH8GsyNO8GnOC3mn0_OK4g3) | Multi-speaker Transformer with reduction factor = 2 |
-| [jsut.tacotron2 (New!)](https://drive.google.com/open?id=1kp5M4VvmagDmYckFJa78WGqh1drb_P9t) | Tacotron 2 ith reduction factor = 2, phoneme input |
-| [jsut.transformer (New!)](https://drive.google.com/open?id=1mEnZfBKqA4eT6Bn0eRZuP6lNzL-IL3VD) | Transformer with reduction factor = 3, phoneme input |
-| [csmsc.transformer.v1 (New!)](https://drive.google.com/open?id=1bTSygvonv5TS6-iuYsOIUWpN2atGnyhZ) | Transformer with reduction factor = 1, pinyin input |
-| [csmsc.fastspeech.v3 (New!)](https://drive.google.com/open?id=1Ig4ghyokVZWs69RMmmkUwL8UJbOOyzv_) | Feed-forward Transformer with CNN instead of position-wise FFN and postnet  (pinyin input )|
-
-Waveform synthesis is performed with Griffin-Lim algorithm as default, but we also support a pretrained WaveNet vocoder.
-You can try it by extending the `stop_stage` as follows:
-```
-../../../utils/synth_wav.sh --stop_stage 4 example.txt
-```
+Waveform synthesis is performed with Griffin-Lim algorithm and neural vocoders (WaveNet and ParallelWaveGAN).
 You can change the pretrained vocoder model as follows:
+
 ```
-../../../utils/synth_wav.sh --stop_stage 4 --vocoder_models ljspeech.wavenet.softmax.ns.v1 example.txt
+../../../utils/synth_wav.sh --vocoder_models ljspeech.wavenet.mol.v1 example.txt
 ```
 
-Available pretrained vocoder models are listed as follows:
+Note that WaveNet vocoder provides very high quality speech but it takes time to generate.
 
-| Model | Notes |
-|:------|:------|
-| [ljspeech.wavenet.softmax.ns.v1](https://drive.google.com/open?id=1eA1VcRS9jzFa-DovyTgJLQ_jmwOLIi8L) | 8 bit Softmax WaveNet w/ noise shapining trained by [kan-bayashi/PytorchWaveNetVocoder](https://github.com/kan-bayashi/PytorchWaveNetVocoder) |
-| [ljspeech.wavenet.mol.v1](https://drive.google.com/open?id=1sY7gEUg39QaO1szuN62-Llst9TrFno2t) | 16 bit MoL WaveNet trained by [r9y9/wavenet_vocoder](https://github.com/r9y9/wavenet_vocoder) |
-| [jsut.wavenet.mol.v1](https://drive.google.com/open?id=187xvyNbmJVZ0EZ1XHCdyjZHTXK9EcfkK) | 16 bit MoL WaveNet trained by [r9y9/wavenet_vocoder](https://github.com/r9y9/wavenet_vocoder) |
-| [libritts.wavenet.mol.v1](https://drive.google.com/open?id=1jHUUmQFjWiQGyDd7ZeiCThSjjpbF_B4h) | 16 bit MoL WaveNet trained by [r9y9/wavenet_vocoder](https://github.com/r9y9/wavenet_vocoder) |
-| [csmsc.wavenet.mol.v1](https://drive.google.com/open?id=1PsjFRV5eUP0HHwBaRYya9smKy5ghXKzj) | 16 bit MoL WaveNet trained by [r9y9/wavenet_vocoder](https://github.com/r9y9/wavenet_vocoder) (Thanks, @lingjzhu!)|
+Available pretrained models in the demo script are listed as follows:
 
-If you want to build your own WaveNet vocoder, please check [kan-bayashi/PytorchWaveNetVocoder](https://github.com/kan-bayashi/PytorchWaveNetVocoder) or [r9y9/wavenet_vocoder](https://github.com/r9y9/wavenet_vocoder).
+| Model link                                                                                    | Lang  | Fs [Hz] | Mel range [Hz] | FFT / Shift / Win [pt] | Input  | R   | Model type                                  |
+| :------                                                                                       | :---: | :----:  | :--------:     | :---------------:      | :---:  | :-: | :------                                     |
+| [ljspeech.tacotron2.v1](https://drive.google.com/open?id=1dKzdaDpOkpx7kWZnvrvx2De7eZEdPHZs)   | EN    | 22.05k  | None           | 1024 / 256 / None      | char   | 2   | Tacotron 2                                  |
+| [ljspeech.tacotron2.v2](https://drive.google.com/open?id=11T9qw8rJlYzUdXvFjkjQjYrp3iGfQ15h)   | EN    | 22.05k  | None           | 1024 / 256 / None      | char   | 1   | Tacotron 2 + forward attention              |
+| [ljspeech.tacotron2.v3](https://drive.google.com/open?id=1hiZn14ITUDM1nkn-GkaN_M3oaTOUcn1n)   | EN    | 22.05k  | None           | 1024 / 256 / None      | char   | 1   | Tacotron 2 + guided attention loss          |
+| [ljspeech.transformer.v1](https://drive.google.com/open?id=13DR-RB5wrbMqBGx_MC655VZlsEq52DyS) | EN    | 22.05k  | None           | 1024 / 256 / None      | char   | 1   | Deep Transformer                            |
+| [ljspeech.transformer.v2](https://drive.google.com/open?id=1xxAwPuUph23RnlC5gym7qDM02ZCW9Unp) | EN    | 22.05k  | None           | 1024 / 256 / None      | char   | 3   | Shallow Transformer                         |
+| [ljspeech.transformer.v3](https://drive.google.com/open?id=1M_w7nxI6AfbtSHpMO-exILnAc_aUYvXP) | EN    | 22.05k  | None           | 1024 / 256 / None      | phn    | 1   | Deep Transformer                            |
+| [ljspeech.fastspeech.v1](https://drive.google.com/open?id=17RUNFLP4SSTbGA01xWRJo7RkR876xM0i)  | EN    | 22.05k  | None           | 1024 / 256 / None      | char   | 1   | FF-Transformer                              |
+| [ljspeech.fastspeech.v2](https://drive.google.com/open?id=1zD-2GMrWM3thaDpS3h3rkTU4jIC0wc5B)  | EN    | 22.05k  | None           | 1024 / 256 / None      | char   | 1   | FF-Transformer + CNN in FFT block           |
+| [ljspeech.fastspeech.v3](https://drive.google.com/open?id=1W86YEQ6KbuUTIvVURLqKtSNqe_eI2GDN)  | EN    | 22.05k  | None           | 1024 / 256 / None      | phn    | 1   | FF-Transformer + CNN in FFT block + postnet |
+| [libritts.tacotron2.v1](https://drive.google.com/open?id=1iAXwC0AuWusa9AcFeUVkcNLG0I-hnSr3)   | EN    | 24k     | 80-7600        | 1024 / 256 / None      | char   | 2   | Multi-speaker Tacotron 2                    |
+| [libritts.transformer.v1](https://drive.google.com/open?id=1Xj73mDPuuPH8GsyNO8GnOC3mn0_OK4g3) | EN    | 24k     | 80-7600        | 1024 / 256 / None      | char   | 2   | Multi-speaker Transformer                   |
+| [jsut.tacotron2](https://drive.google.com/open?id=1kp5M4VvmagDmYckFJa78WGqh1drb_P9t)          | JP    | 24k     | 80-7600        | 2048 / 300 / 1200      | phn    | 2   | Tacotron 2                                  |
+| [jsut.transformer](https://drive.google.com/open?id=1mEnZfBKqA4eT6Bn0eRZuP6lNzL-IL3VD)        | JP    | 24k     | 80-7600        | 2048 / 300 / 1200      | phn    | 3   | Shallow Transformer                         |
+| [csmsc.transformer.v1](https://drive.google.com/open?id=1bTSygvonv5TS6-iuYsOIUWpN2atGnyhZ)    | ZH    | 24k     | 80-7600        | 2048 / 300 / 1200      | pinyin | 1   | Deep Transformer                            |
+| [csmsc.fastspeech.v3](https://drive.google.com/open?id=1T8thxkAxjGFPXPWPTcKLvHnd6lG0-82R)     | ZH    | 24k     | 80-7600        | 2048 / 300 / 1200      | pinyin | 1   | FF-Transformer + CNN in FFT block + postnet |
+
+Available pretrained vocoder models in the demo script are listed as follows:
+
+| Model link                                                                                           | Lang  | Fs [Hz] | Mel range [Hz] | FFT / Shift / Win [pt] | Model type                                                              |
+| :------                                                                                              | :---: | :----:  | :--------:     | :---------------:      | :------                                                                 |
+| [ljspeech.wavenet.softmax.ns.v1](https://drive.google.com/open?id=1eA1VcRS9jzFa-DovyTgJLQ_jmwOLIi8L) | EN    | 22.05k  | None           | 1024 / 256 / None      | [Softmax WaveNet](https://github.com/kan-bayashi/PytorchWaveNetVocoder) |
+| [ljspeech.wavenet.mol.v1](https://drive.google.com/open?id=1sY7gEUg39QaO1szuN62-Llst9TrFno2t)        | EN    | 22.05k  | None           | 1024 / 256 / None      | [MoL WaveNet](https://github.com/r9y9/wavenet_vocoder)                  |
+| [ljspeech.parallel_wavegan.v1](https://drive.google.com/open?id=1tv9GKyRT4CDsvUWKwH3s_OfXkiTi0gw7)   | EN    | 22.05k  | None           | 1024 / 256 / None      | [Parallel WaveGAN](https://github.com/kan-bayashi/ParallelWaveGAN)      |
+| [libritts.wavenet.mol.v1](https://drive.google.com/open?id=1jHUUmQFjWiQGyDd7ZeiCThSjjpbF_B4h)        | EN    | 24k     | None           | 1024 / 256 / None      | [MoL WaveNet](https://github.com/r9y9/wavenet_vocoder)                  |
+| [jsut.wavenet.mol.v1](https://drive.google.com/open?id=187xvyNbmJVZ0EZ1XHCdyjZHTXK9EcfkK)            | JP    | 24k     | 80-7600        | 2048 / 300 / 1200      | [MoL WaveNet](https://github.com/r9y9/wavenet_vocoder)                  |
+| [jsut.parallel_wavegan.v1](https://drive.google.com/open?id=1OwrUQzAmvjj1x9cDhnZPp6dqtsEqGEJM)       | JP    | 24k     | 80-7600        | 2048 / 300 / 1200      | [Parallel WaveGAN](https://github.com/kan-bayashi/ParallelWaveGAN)      |
+| [csmsc.wavenet.mol.v1](https://drive.google.com/open?id=1PsjFRV5eUP0HHwBaRYya9smKy5ghXKzj)           | ZH    | 24k     | 80-7600        | 2048 / 300 / 1200      | [MoL WaveNet](https://github.com/r9y9/wavenet_vocoder)                  |
+| [csmsc.parallel_wavegan.v1](https://drive.google.com/open?id=10M6H88jEUGbRWBmU1Ff2VaTmOAeL8CEy)      | ZH    | 24k     | 80-7600        | 2048 / 300 / 1200      | [Parallel WaveGAN](https://github.com/kan-bayashi/ParallelWaveGAN)      |
 
 
 ## Chainer and Pytorch backends
 
-|           | Chainer | Pytorch |
-|-----------|:----:|:----:|
-| Performance | ◎ | ◎ |
-| Speed | ○ | ◎ |
-| Multi-GPU | supported | supported |
-| VGG-like encoder | supported | supported |
-| Transformer | supported | supported |
-| RNNLM integration | supported | supported |
-| #Attention types | 3 (no attention, dot, location) | 12 including variants of multihead |
-| TTS recipe support | no support | supported |
+|                    | Chainer                         | Pytorch                            |
+| -----------        | :----:                          | :----:                             |
+| Performance        | ◎                               | ◎                                  |
+| Speed              | ○                               | ◎                                  |
+| Multi-GPU          | supported                       | supported                          |
+| VGG-like encoder   | supported                       | supported                          |
+| Transformer        | supported                       | supported                          |
+| RNNLM integration  | supported                       | supported                          |
+| #Attention types   | 3 (no attention, dot, location) | 12 including variants of multihead |
+| TTS recipe support | no support                      | supported                          |
 
 ## References
 

@@ -22,7 +22,7 @@ requirements = {
         'chainer==6.0.0',
         # 'cupy==6.0.0',  # Do not install cupy as default
         'setuptools>=38.5.1',
-        'scipy>=1.3.0',
+        'scipy<=1.3.3',
         'librosa>=0.7.0',
         'soundfile>=0.10.2',
         'inflect>=1.0.0',
@@ -41,6 +41,7 @@ requirements = {
         'PyYAML>=5.1.2',
         'sentencepiece>=0.1.82',
         'pysptk>=0.1.17',
+        'nltk>=3.4.5',
         'nnmnkwii',
         'jaconv',
         'g2p_en',
@@ -79,7 +80,7 @@ extras_require = {k: v for k, v in requirements.items()
 
 dirname = os.path.dirname(__file__)
 setup(name='espnet',
-      version='0.5.4',
+      version='0.6.1',
       url='http://github.com/espnet/espnet',
       author='Shinji Watanabe',
       author_email='shinjiw@ieee.org',
@@ -96,8 +97,9 @@ setup(name='espnet',
       extras_require=extras_require,
       classifiers=[
           'Programming Language :: Python',
-          'Programming Language :: Python :: 2.7',
           'Programming Language :: Python :: 3',
+          'Programming Language :: Python :: 3.6',
+          'Programming Language :: Python :: 3.7',
           'Development Status :: 5 - Production/Stable',
           'Intended Audience :: Science/Research',
           'Operating System :: POSIX :: Linux',

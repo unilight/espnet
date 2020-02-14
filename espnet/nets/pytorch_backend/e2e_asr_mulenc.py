@@ -24,6 +24,7 @@ from chainer import reporter
 from espnet.nets.asr_interface import ASRInterface
 from espnet.nets.e2e_asr_common import label_smoothing_dist
 from espnet.nets.pytorch_backend.ctc import ctc_for
+from espnet.nets.pytorch_backend.nets_utils import get_subsample
 from espnet.nets.pytorch_backend.nets_utils import pad_list
 from espnet.nets.pytorch_backend.nets_utils import to_device
 from espnet.nets.pytorch_backend.nets_utils import to_torch_tensor
@@ -156,6 +157,9 @@ class E2E(ASRInterface, torch.nn.Module):
                            help='Dropout rate for the decoder')
         group.add_argument('--sampling-probability', default=0.0, type=float,
                            help='Ratio of predicted labels fed back to decoder')
+        group.add_argument('--lsm-type', const='', default='', type=str, nargs='?',
+                           choices=['', 'unigram'],
+                           help='Apply label smoothing with a specified distribution type')
         return parser
 
     @staticmethod
@@ -201,20 +205,7 @@ class E2E(ASRInterface, torch.nn.Module):
         self.eos = odim - 1
 
         # subsample info
-        self.subsample_list = []
-        for idx in range(self.num_encs):
-            # +1 means input (+1) and layers outputs (args.elayer)
-            subsample = np.ones(args.elayers[idx] + 1, dtype=np.int)
-            if args.etype[idx].endswith("p") and not args.etype[idx].startswith("vgg"):
-                ss = args.subsample[idx].split("_")
-                for j in range(min(args.elayers[idx] + 1, len(ss))):
-                    subsample[j] = int(ss[j])
-            else:
-                logging.warning(
-                    'Encoder {}: Subsampling is not performed for vgg*. '
-                    'It is performed in max pooling layers at CNN.'.format(idx + 1))
-            logging.info('subsample: ' + ' '.join([str(x) for x in subsample]))
-            self.subsample_list.append(subsample)
+        self.subsample_list = get_subsample(args, mode='asr', arch='rnn_mulenc')
 
         # label smoothing info
         if args.lsm_type and os.path.isfile(args.train_json):
@@ -355,7 +346,7 @@ class E2E(ASRInterface, torch.nn.Module):
         if self.mtlalpha == 1:
             self.loss_att, acc = None, None
         else:
-            self.loss_att, acc, _ = self.dec(hs_pad_list, hlens_list, ys_pad, tgt_lang_ids=tgt_lang_ids)
+            self.loss_att, acc, _ = self.dec(hs_pad_list, hlens_list, ys_pad, lang_ids=tgt_lang_ids)
         self.acc = acc
 
         # 4. compute cer without beam search
@@ -406,7 +397,7 @@ class E2E(ASRInterface, torch.nn.Module):
                 hs_pad_list, hlens_list, lpz_list,
                 self.recog_args, self.char_list,
                 self.rnnlm,
-                tgt_lang_ids=tgt_lang_ids.squeeze(1).tolist() if self.replace_sos else None)
+                lang_ids=tgt_lang_ids.squeeze(1).tolist() if self.replace_sos else None)
             # remove <sos> and <eos>
             y_hats = [nbest_hyp[0]['yseq'][1:-1] for nbest_hyp in nbest_hyps]
             for i, y_hat in enumerate(y_hats):
@@ -593,6 +584,6 @@ class E2E(ASRInterface, torch.nn.Module):
                 hlens_list.append(hlens)
 
             # 2. Decoder
-            att_ws = self.dec.calculate_all_attentions(hs_pad_list, hlens_list, ys_pad, tgt_lang_ids=tgt_lang_ids)
+            att_ws = self.dec.calculate_all_attentions(hs_pad_list, hlens_list, ys_pad, lang_ids=tgt_lang_ids)
 
         return att_ws
