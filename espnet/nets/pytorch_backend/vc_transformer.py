@@ -168,6 +168,8 @@ class Transformer(TTSInterface, torch.nn.Module):
                            help="Number of encoder prenet convolution channels")
         group.add_argument("--eprenet-conv-filts", default=5, type=int,
                            help="Filter size of encoder prenet convolution")
+        group.add_argument("--transformer-input-layer", default="linear", type=str,
+                           help="Type of input layer (linear or conv2d)")
         group.add_argument("--dprenet-layers", default=2, type=int,
                            help="Number of decoder prenet layers")
         group.add_argument("--dprenet-units", default=256, type=int,
@@ -246,8 +248,15 @@ class Transformer(TTSInterface, torch.nn.Module):
                            help="Dropout rate in postnet")
         group.add_argument("--pretrained-model", default=None, type=str,
                            help="Pretrained model path")
+        group.add_argument("--pretrained-model2", default=None, type=str,
+                           help="Pretrained model path (second, if needed)")
         group.add_argument("--load-partial-pretrained-model", default=None, type=str,
                            help="Which part of the pretrained model to load")
+        group.add_argument("--load-partial-pretrained-model2", default=None, type=str,
+                           help="Which part of the pretrained model to load (for the second pretrained model)")
+        group.add_argument("--params-to-train", default=None, type=str, nargs="+",
+                           help="Which part of the model to train")
+
         # loss related
         group.add_argument("--use-masking", default=True, type=strtobool,
                            help="Whether to use masking in calculation of loss")
@@ -349,6 +358,7 @@ class Transformer(TTSInterface, torch.nn.Module):
         self.use_scaled_pos_enc = args.use_scaled_pos_enc
         self.reduction_factor = args.reduction_factor
         self.encoder_reduction_factor = args.encoder_reduction_factor
+        self.transformer_input_layer = args.transformer_input_layer
         self.loss_type = args.loss_type
         self.use_guided_attn_loss = args.use_guided_attn_loss
         if self.use_guided_attn_loss:
@@ -384,8 +394,10 @@ class Transformer(TTSInterface, torch.nn.Module):
                 ),
                 torch.nn.Linear(args.eprenet_conv_chans, args.adim)
             )
-        else:
+        elif args.transformer_input_layer == "linear":
             encoder_input_layer = torch.nn.Linear(idim * args.encoder_reduction_factor, args.adim)
+        else:
+            encoder_input_layer = args.transformer_input_layer
         self.encoder = Encoder(
             idim=idim,
             attention_dim=args.adim,
@@ -471,20 +483,74 @@ class Transformer(TTSInterface, torch.nn.Module):
         # load pretrained model
         if args.pretrained_model is not None:
             if args.load_partial_pretrained_model:
+                # exclude=True -> parameters NOT containing the partial_description are restored
                 self.load_partial_pretrained_model(args.pretrained_model, args.load_partial_pretrained_model)
             else:
                 self.load_pretrained_model(args.pretrained_model)
+        else:
+            print('we did not come in')
 
-    
-    def load_partial_pretrained_model(self, model_path, partial_description):
+        # load pretrained model 2
+        if args.pretrained_model2 is not None:
+            # for pretrained model 2, must only be partial model
+            # exclude=True -> parameters containing the partial_description are restored
+            self.load_partial_pretrained_model(args.pretrained_model2, args.load_partial_pretrained_model2, exclude=True)
+
+        # freeze partial model params
+        if args.params_to_train is not None:
+            if isinstance(args.params_to_train, list):
+                params_to_train = args.params_to_train
+            else:
+                params_to_train = [args.params_to_train]
+                if args.params_to_train == "decoder":
+                    params_to_train.append("feat_out")
+                    params_to_train.append("prob_out")
+                    params_to_train.append("postnet")
+            
+            print('Params to train:', params_to_train)
+            for name, param in self.named_parameters():
+                to_train=False
+                for param_to_train in params_to_train:
+                    if param_to_train in name:
+                        to_train=True
+                if not to_train:
+                    param.requires_grad = False
+                else:
+                    print("\t", name, param.shape)
+
+    def load_partial_pretrained_model(self, model_path, partial_description, exclude=False):
         """Load pretrained model parameters according to partial description."""
-        
+
         if 'snapshot' in model_path:
             model_state_dict = torch.load(model_path, map_location=lambda storage, loc: storage)['model']
         else:
             model_state_dict = torch.load(model_path, map_location=lambda storage, loc: storage)
 
-        filtered_model_state_dict = {k: v for k, v in model_state_dict.items() if not partial_description in k}
+        print("Start printing pretrained model params")
+        for k, v in model_state_dict.items():
+            print("\t", k, v.shape)
+        print("Start printing original VC model params")
+        #for name, param in self.named_parameters():
+        for name, param in self.state_dict().items():
+            print("\t", name, param.shape)
+        print("Start printing newly defined model params")
+        #for name, param in self.named_parameters():
+        for name, param in self.state_dict().items():
+            if name not in model_state_dict or param.shape != model_state_dict[name].shape:
+                print("\t", name, param.shape)
+
+        #exit()
+
+        if exclude:
+            filtered_model_state_dict = {k: v for k, v in model_state_dict.items()
+                if (partial_description in k and (not self.state_dict().get(k) is None) and self.state_dict()[k].shape == v.shape)}
+        else:
+            filtered_model_state_dict = {k: v for k, v in model_state_dict.items()
+                if (not partial_description in k and (not self.state_dict().get(k) is None) and self.state_dict()[k].shape == v.shape)}
+        
+        print("Start printing model params to store")
+        for name, param in filtered_model_state_dict.items():
+            print("\t", name, param.shape)
 
         if hasattr(self, 'module'):
             self.module.load_state_dict(filtered_model_state_dict, strict = False)
@@ -492,6 +558,10 @@ class Transformer(TTSInterface, torch.nn.Module):
             self.load_state_dict(filtered_model_state_dict, strict = False)
 
         del model_state_dict
+
+        return filtered_model_state_dict
+        
+        print("===============================================")
 
     def _reset_parameters(self, init_type, init_enc_alpha=1.0, init_dec_alpha=1.0):
         # initialize parameters
@@ -505,23 +575,6 @@ class Transformer(TTSInterface, torch.nn.Module):
     def _add_first_frame_and_remove_last_frame(self, ys):
         ys_in = torch.cat([ys.new_zeros((ys.shape[0], 1, ys.shape[2])), ys[:, :-1]], dim=1)
         return ys_in
-
-    def reshape_pyramidal(self, outputs, sequence_length, M):
-        """
-        Reduces time resolution by M
-        """
-        
-        # [batch_size, max_time, num_units]
-        shape = tf.shape(outputs)
-        batch_size, max_time = shape[0], shape[1]
-        num_units = outputs.get_shape().as_list()[-1]
-
-        padded = M - tf.floormod(max_time, M)
-        pads = [[0, 0], [0, padded], [0, 0]]
-        outputs = tf.pad(outputs, pads)
-
-        concat_outputs = tf.reshape(outputs, (batch_size, -1, num_units * M))
-        return concat_outputs, tf.floordiv(sequence_length + padded, M)
 
     def forward(self, xs, ilens, ys, labels, olens, spembs=None, *args, **kwargs):
         """Calculate forward propagation.
@@ -545,7 +598,7 @@ class Transformer(TTSInterface, torch.nn.Module):
         if max_olen != ys.shape[1]:
             ys = ys[:, :max_olen]
             labels = labels[:, :max_olen]
-        
+
         # thin out input frames for reduction factor (B, Lmax, idim) ->  (B, Lmax // r, idim * r)
         if self.encoder_reduction_factor > 1:
             B, Lmax, idim = xs.shape
@@ -558,7 +611,8 @@ class Transformer(TTSInterface, torch.nn.Module):
 
         # forward encoder
         x_masks = self._source_mask(ilens_ds)
-        hs, _ = self.encoder(xs_ds, x_masks)
+        #x_masks = make_non_pad_mask(ilens).to(next(self.parameters()).device).unsqueeze(-2)
+        hs, hs_masks = self.encoder(xs_ds, x_masks)
 
         # integrate speaker embedding
         if self.spk_embed_dim is not None:
@@ -573,10 +627,17 @@ class Transformer(TTSInterface, torch.nn.Module):
 
         # add first zero frame and remove last frame for auto-regressive
         ys_in = self._add_first_frame_and_remove_last_frame(ys_in)
+        
+        # if conv2d, modify mask. Use ceiling division here
+        if self.transformer_input_layer == 'conv2d':
+            ilens_ds_st = ilens_ds.new([ ((ilen -2 +1) // 2 -2 +1) //2 for ilen in ilens_ds])
+        else:
+            ilens_ds_st = ilens_ds
+        
 
         # forward decoder
         y_masks = self._target_mask(olens_in)
-        xy_masks = self._source_to_target_mask(ilens_ds, olens_in)
+        xy_masks = self._source_to_target_mask(ilens_ds_st, olens_in)
         zs, _ = self.decoder(ys_in, y_masks, hs, xy_masks)
         # (B, Lmax//r, odim * r) -> (B, Lmax//r * r, odim)
         before_outs = self.feat_out(zs).view(zs.size(0), -1, self.odim)
@@ -625,7 +686,7 @@ class Transformer(TTSInterface, torch.nn.Module):
                     if idx + 1 == self.num_layers_applied_guided_attn:
                         break
                 att_ws = torch.cat(att_ws, dim=1)  # (B, H*L, T_in, T_in)
-                enc_attn_loss = self.attn_criterion(att_ws, ilens_ds, ilens_ds)
+                enc_attn_loss = self.attn_criterion(att_ws, ilens_ds_st, ilens_ds_st) # TODO: is changing to ilens_ds_st right?
                 loss = loss + enc_attn_loss
                 report_keys += [{"enc_attn_loss": enc_attn_loss.item()}]
             # calculate for decoder
@@ -647,7 +708,7 @@ class Transformer(TTSInterface, torch.nn.Module):
                     if idx + 1 == self.num_layers_applied_guided_attn:
                         break
                 att_ws = torch.cat(att_ws, dim=1)  # (B, H*L, T_out, T_in)
-                enc_dec_attn_loss = self.attn_criterion(att_ws, ilens_ds, olens_in)
+                enc_dec_attn_loss = self.attn_criterion(att_ws, ilens_ds_st, olens_in) # TODO: is this right
                 loss = loss + enc_dec_attn_loss
                 report_keys += [{"enc_dec_attn_loss": enc_dec_attn_loss.item()}]
 
@@ -682,7 +743,7 @@ class Transformer(TTSInterface, torch.nn.Module):
         threshold = inference_args.threshold
         minlenratio = inference_args.minlenratio
         maxlenratio = inference_args.maxlenratio
-        
+
         # thin out input frames for reduction factor (B, Lmax, idim) ->  (B, Lmax // r, idim * r)
         if self.encoder_reduction_factor > 1:
             Lmax, idim = x.shape
@@ -772,10 +833,10 @@ class Transformer(TTSInterface, torch.nn.Module):
                 ilens_ds = ilens.new([ilen // self.encoder_reduction_factor for ilen in ilens])
             else:
                 xs_ds, ilens_ds = xs, ilens
-            
+
             # forward encoder
             x_masks = self._source_mask(ilens_ds)
-            hs, _ = self.encoder(xs_ds, x_masks)
+            hs, hs_masks = self.encoder(xs_ds, x_masks)
 
             # integrate speaker embedding
             if self.spk_embed_dim is not None:
@@ -790,10 +851,16 @@ class Transformer(TTSInterface, torch.nn.Module):
 
             # add first zero frame and remove last frame for auto-regressive
             ys_in = self._add_first_frame_and_remove_last_frame(ys_in)
+        
+            # if conv2d, modify mask
+            if self.transformer_input_layer == 'conv2d':
+                ilens_ds_st = ilens_ds.new([ ((ilen -2 +1) // 2 -2 +1) //2 for ilen in ilens_ds])
+            else:
+                ilens_ds_st = ilens_ds
 
             # forward decoder
             y_masks = self._target_mask(olens_in)
-            xy_masks = self._source_to_target_mask(ilens_ds, olens_in)
+            xy_masks = self._source_to_target_mask(ilens_ds_st, olens_in)
             zs, _ = self.decoder(ys_in, y_masks, hs, xy_masks)
 
             # calculate final outputs

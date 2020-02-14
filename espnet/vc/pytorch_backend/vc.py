@@ -268,9 +268,9 @@ def train(args):
     utts = list(valid_json.keys())
 
     # in VC the mapping is acoustic -> acoustic, so the dimension is the same
-    dim = int(valid_json[utts[0]]['input'][0]['shape'][1])
-    idim = dim
-    odim = dim
+    # 20200115: when we use ASR encoder, the input is fbank+pitch, so we still read dim info from json.
+    idim = int(valid_json[utts[0]]['input'][0]['shape'][1])
+    odim = int(valid_json[utts[0]]['output'][0]['shape'][1])
     logging.info('#input dims : ' + str(idim))
     logging.info('#output dims: ' + str(odim))
 

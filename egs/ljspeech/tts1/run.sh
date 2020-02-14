@@ -30,7 +30,7 @@ win_length="" # window length
 
 # char or phn
 # In the case of phn, input transcription is convered to phoneem using https://github.com/Kyubyong/g2p.
-trans_type="char"
+trans_type="phn"
 
 # config files
 train_config=conf/train_pytorch_tacotron2.yaml # you can select from conf or conf/tuning.

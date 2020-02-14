@@ -18,7 +18,7 @@ seed=1       # random seed number
 resume=""    # the snapshot path to resume (if set empty, no effect)
 
 # feature extraction related
-fs=24000      # sampling frequency
+fs=16000      # sampling frequency
 fmax=""       # maximum frequency
 fmin=""       # minimum frequency
 n_mels=80     # number of mel basis
@@ -27,7 +27,7 @@ n_shift=256   # number of shift points
 win_length="" # window length
 
 # config files
-train_config=conf/train_pytorch_tacotron2+spkemb.yaml
+train_config=conf/train_pytorch_transformer+spkemb.yaml
 decode_config=conf/decode.yaml
 
 # decoding related
@@ -38,7 +38,8 @@ griffin_lim_iters=64  # the number of iterations of Griffin-Lim
 # Set this to somewhere where you want to put your data, or where
 # someone else has already put it. You'll want to change this
 # if you're not on the CLSP grid.
-datadir=/export/a15/vpanayotov/data
+#datadir=/export/a15/vpanayotov/data
+datadir=downloads
 
 # base url for downloads.
 data_url=www.openslr.org/resources/60

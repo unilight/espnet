@@ -45,7 +45,7 @@ use_lm_valbest_average=false # if true, the validation `lm_n_average`-best langu
 # Set this to somewhere where you want to put your data, or where
 # someone else has already put it.  You'll want to change this
 # if you're not on the CLSP grid.
-datadir=/export/a15/vpanayotov/data
+datadir=downloads
 
 # base url for downloads.
 data_url=www.openslr.org/resources/12
@@ -248,20 +248,7 @@ if [ ${stage} -le 5 ] && [ ${stop_stage} -ge 5 ]; then
             --out ${expdir}/results/${recog_model} \
             --num ${n_average}
 
-        # Average LM models
-        if ${use_lm_valbest_average}; then
-            lang_model=rnnlm.val${lm_n_average}.avg.best
-            opt="--log ${lmexpdir}/log"
-        else
-            lang_model=rnnlm.last${lm_n_average}.avg.best
-            opt="--log"
-        fi
-        average_checkpoints.py \
-            ${opt} \
-            --backend ${backend} \
-            --snapshots ${lmexpdir}/snapshot.ep.* \
-            --out ${lmexpdir}/${lang_model} \
-            --num ${lm_n_average}
+        lang_model=rnnlm.model.best
     fi
     nj=32
 

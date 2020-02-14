@@ -131,8 +131,13 @@ class LoadInputsAndTargets(object):
                     # Here I just name them 'input' and 'output'
                     # Since that, in the end of this function, ths name is dropped,
                     # I think this should be okay...
-                    ### x_feats_dict.setdefault(inp['name'], []).append(x)
-                    x_feats_dict.setdefault('input', []).append(x)
+                    
+                    # 20200131
+                    # No. the above will cause problem when we use speaker embedding.
+
+
+                    x_feats_dict.setdefault(inp['name'], []).append(x)
+                    ### x_feats_dict.setdefault('input', []).append(x)
 
             if self.load_output:
                 if self.mode == 'mt':
@@ -158,8 +163,12 @@ class LoadInputsAndTargets(object):
 
                     # 20191017
                     # Same here
-                    ### y_feats_dict.setdefault(inp['name'], []).append(x)
-                    y_feats_dict.setdefault('output', []).append(x)
+
+                    # 20200131
+                    # Same here
+
+                    y_feats_dict.setdefault(inp['name'], []).append(x)
+                    ### y_feats_dict.setdefault('output', []).append(x)
 
         if self.mode == 'asr':
             return_batch, uttid_list = self._create_batch_asr(

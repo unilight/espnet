@@ -290,8 +290,14 @@ class Tacotron2(TTSInterface, torch.nn.Module):
                            help="Number of spectrogram dimensions")
         group.add_argument("--pretrained-model", default=None, type=str,
                            help="Pretrained model path")
+        group.add_argument("--pretrained-model2", default=None, type=str,
+                           help="Pretrained model path (second, if needed)")
         group.add_argument("--load-partial-pretrained-model", default=None, type=str,
                            help="Which part of the pretrained model to load")
+        group.add_argument("--load-partial-pretrained-model2", default=None, type=str,
+                           help="Which part of the pretrained model to load (for the second pretrained model)")
+        group.add_argument("--params-to-train", default=None, type=str,
+                           help="Which part of the model to train")
         # loss related
         group.add_argument('--use-masking', default=False, type=strtobool,
                            help='Whether to use masking in calculation of loss')
@@ -303,6 +309,10 @@ class Tacotron2(TTSInterface, torch.nn.Module):
                            help="Sigma in guided attention loss")
         group.add_argument("--guided-attn-loss-lambda", default=1.0, type=float,
                            help="Lambda in guided attention loss")
+        group.add_argument("--src-reconstruction-loss-lambda", default=1.0, type=float,
+                           help="Lambda in source reconstruction loss")
+        group.add_argument("--trg-reconstruction-loss-lambda", default=1.0, type=float,
+                           help="Lambda in target reconstruction loss")
         return parser
 
     def __init__(self, idim, odim, args=None):
@@ -363,12 +373,15 @@ class Tacotron2(TTSInterface, torch.nn.Module):
         # store hyperparameters
         self.idim = idim
         self.odim = odim
+        self.adim = args.adim
         self.spk_embed_dim = args.spk_embed_dim
         self.cumulate_att_w = args.cumulate_att_w
         self.reduction_factor = args.reduction_factor
         self.encoder_reduction_factor = args.encoder_reduction_factor
         self.use_cbhg = args.use_cbhg
         self.use_guided_attn_loss = args.use_guided_attn_loss
+        self.src_reconstruction_loss_lambda = args.src_reconstruction_loss_lambda
+        self.trg_reconstruction_loss_lambda = args.trg_reconstruction_loss_lambda
 
         # define activation function for the final output
         if args.output_activation is None:
@@ -382,7 +395,8 @@ class Tacotron2(TTSInterface, torch.nn.Module):
         padding_idx = 0
 
         # define network modules
-        self.enc = Encoder(idim=idim * args.encoder_reduction_factor,
+        encoder_input_layer = torch.nn.Linear(idim * args.encoder_reduction_factor, args.embed_dim)
+        self.enc = Encoder(idim=args.embed_dim,
                            elayers=args.elayers,
                            eunits=args.eunits,
                            econv_layers=args.econv_layers,
@@ -391,6 +405,7 @@ class Tacotron2(TTSInterface, torch.nn.Module):
                            use_batch_norm=args.use_batch_norm,
                            use_residual=args.use_residual,
                            dropout_rate=args.dropout_rate,
+                           input_layer=encoder_input_layer,
                            )
         dec_idim = args.eunits if args.spk_embed_dim is None else args.eunits + args.spk_embed_dim
         if args.atype == "location":
@@ -455,23 +470,92 @@ class Tacotron2(TTSInterface, torch.nn.Module):
                              highway_units=args.cbhg_highway_units,
                              gru_units=args.cbhg_gru_units)
             self.cbhg_loss = CBHGLoss(use_masking=args.use_masking)
+        if self.src_reconstruction_loss_lambda > 0:
+            self.src_reconstructor = Encoder(
+                                        idim=dec_idim,
+                                        elayers=args.elayers,
+                                        eunits=args.eunits,
+                                        econv_layers=args.econv_layers,
+                                        econv_chans=args.econv_chans,
+                                        econv_filts=args.econv_filts,
+                                        use_batch_norm=args.use_batch_norm,
+                                        use_residual=args.use_residual,
+                                        dropout_rate=args.dropout_rate,
+                                     )
+            self.src_reconstructor_linear = torch.nn.Linear(
+                                                args.econv_chans,
+                                                idim * args.encoder_reduction_factor
+                                            )
+
+            self.src_reconstruction_loss = CBHGLoss(use_masking=args.use_masking)
+        if self.trg_reconstruction_loss_lambda > 0:
+            self.trg_reconstructor = Encoder(
+                                        idim=dec_idim,
+                                        elayers=args.elayers,
+                                        eunits=args.eunits,
+                                        econv_layers=args.econv_layers,
+                                        econv_chans=args.econv_chans,
+                                        econv_filts=args.econv_filts,
+                                        use_batch_norm=args.use_batch_norm,
+                                        use_residual=args.use_residual,
+                                        dropout_rate=args.dropout_rate,
+                                     )
+            self.trg_reconstructor_linear = torch.nn.Linear(
+                                                args.econv_chans,
+                                                odim * args.reduction_factor
+                                            )
+            self.trg_reconstruction_loss = CBHGLoss(use_masking=args.use_masking)
 
         # load pretrained model
         if args.pretrained_model is not None:
             if args.load_partial_pretrained_model:
+                # exclude=True -> parameters NOT containing the partial_description are restored
                 self.load_partial_pretrained_model(args.pretrained_model, args.load_partial_pretrained_model)
             else:
                 self.load_pretrained_model(args.pretrained_model)
+
+        # load pretrained model 2
+        if args.pretrained_model2 is not None:
+            # for pretrained model 2, must only be partial model
+            # exclude=True -> parameters containing the partial_description are restored
+            self.load_partial_pretrained_model(args.pretrained_model2, args.load_partial_pretrained_model2, exclude=True)
+
+        # freeze partial model params
+        if args.params_to_train is not None:
+            print(args.params_to_train)
+            for name, param in self.named_parameters():
+                if args.params_to_train not in name:
+                    param.requires_grad = False
     
-    def load_partial_pretrained_model(self, model_path, partial_description):
+    def load_partial_pretrained_model(self, model_path, partial_description, exclude=False):
         """Load pretrained model parameters according to partial description."""
-        
+
         if 'snapshot' in model_path:
             model_state_dict = torch.load(model_path, map_location=lambda storage, loc: storage)['model']
         else:
             model_state_dict = torch.load(model_path, map_location=lambda storage, loc: storage)
 
-        filtered_model_state_dict = {k: v for k, v in model_state_dict.items() if not partial_description in k}
+        print("Start printing pretrained model params")
+        for k, v in model_state_dict.items():
+            print("\t", k, v.shape)
+        print("Start printing original VC model params")
+        for name, param in self.named_parameters():
+            print("\t", name, param.shape)
+        print("Start printing newly defined model params")
+        for name, param in self.named_parameters():
+            if name not in model_state_dict or param.shape != model_state_dict[name].shape:
+                print("\t", name, param.shape)
+
+        #exit()
+
+        if exclude:
+            filtered_model_state_dict = {k: v for k, v in model_state_dict.items() if partial_description in k}
+        else:
+            filtered_model_state_dict = {k: v for k, v in model_state_dict.items() if not partial_description in k}
+        
+        print("Start printing model params to store")
+        for name, param in filtered_model_state_dict.items():
+            print("\t", name, param.shape)
 
         if hasattr(self, 'module'):
             self.module.load_state_dict(filtered_model_state_dict, strict = False)
@@ -479,6 +563,8 @@ class Tacotron2(TTSInterface, torch.nn.Module):
             self.load_state_dict(filtered_model_state_dict, strict = False)
 
         del model_state_dict
+        
+        print("===============================================")
 
     def forward(self, xs, ilens, ys, labels, olens, spembs=None, spcs=None, *args, **kwargs):
         """Calculate forward propagation.
@@ -520,6 +606,27 @@ class Tacotron2(TTSInterface, torch.nn.Module):
             spembs = F.normalize(spembs).unsqueeze(1).expand(-1, hs.size(1), -1)
             hs = torch.cat([hs, spembs], dim=-1)
         after_outs, before_outs, logits, att_ws = self.dec(hs, hlens, ys)
+        
+        # caluculate src reconstruction
+        if self.src_reconstruction_loss_lambda > 0:
+            B, _in_length, _adim = hs.shape
+            xt, xtlens = self.src_reconstructor(hs, hlens)
+            xt = self.src_reconstructor_linear(xt)
+            if self.encoder_reduction_factor > 1:
+                xt = xt.view(B, -1, self.idim)
+            
+        # caluculate trg reconstruction
+        if self.trg_reconstruction_loss_lambda > 0:
+            olens_trg_cp = olens.new(sorted([olen // self.reduction_factor for olen in olens], reverse=True))
+            B, _in_length, _adim = hs.shape
+            _, _out_length, _ = att_ws.shape
+            # att_R should be [B, out_length / r_d, adim]
+            att_R = torch.sum(hs.view(B, 1, _in_length, _adim)
+                              * att_ws.view(B, _out_length, _in_length, 1), dim=2)
+            yt, ytlens = self.trg_reconstructor(att_R, olens_trg_cp) # is using olens correct?
+            yt = self.trg_reconstructor_linear(yt)
+            if self.reduction_factor > 1:
+                yt = yt.view(B, -1, self.odim) # now att_R should be [B, out_length, adim]
 
         # modifiy mod part of groundtruth
         if self.reduction_factor > 1:
@@ -528,6 +635,10 @@ class Tacotron2(TTSInterface, torch.nn.Module):
             ys = ys[:, :max_out]
             labels = labels[:, :max_out]
             labels[:, -1] = 1.0  # make sure at least one frame has 1
+        if self.encoder_reduction_factor > 1:
+            ilens = ilens.new([ilen - ilen % self.encoder_reduction_factor for ilen in ilens])
+            max_in = max(ilens)
+            xs = xs[:, :max_in]
 
         # caluculate taco2 loss
         l1_loss, mse_loss, bce_loss = self.taco2_loss(
@@ -538,15 +649,35 @@ class Tacotron2(TTSInterface, torch.nn.Module):
             {'mse_loss': mse_loss.item()},
             {'bce_loss': bce_loss.item()},
         ]
+        
+        # caluculate context_perservation loss
+        if self.src_reconstruction_loss_lambda > 0:
+            src_recon_l1_loss, src_recon_mse_loss = self.src_reconstruction_loss(xt, xs, ilens)
+            loss = loss + src_recon_l1_loss
+            report_keys += [
+                {'src_recon_l1_loss': src_recon_l1_loss.item()},
+                {'src_recon_mse_loss': src_recon_mse_loss.item()},
+            ]
+        if self.trg_reconstruction_loss_lambda > 0:
+            trg_recon_l1_loss, trg_recon_mse_loss = self.trg_reconstruction_loss(yt, ys, olens)
+            loss = loss + trg_recon_l1_loss
+            report_keys += [
+                {'trg_recon_l1_loss': trg_recon_l1_loss.item()},
+                {'trg_recon_mse_loss': trg_recon_mse_loss.item()},
+            ]
 
         # caluculate attention loss
         if self.use_guided_attn_loss:
             # NOTE(kan-bayashi): length of output for auto-regressive input will be changed when r > 1
+            if self.encoder_reduction_factor > 1:
+                ilens_in = ilens.new([ilen // self.encoder_reduction_factor for ilen in ilens])
+            else:
+                ilens_in = ilens
             if self.reduction_factor > 1:
                 olens_in = olens.new([olen // self.reduction_factor for olen in olens])
             else:
                 olens_in = olens
-            attn_loss = self.attn_loss(att_ws, ilens, olens_in)
+            attn_loss = self.attn_loss(att_ws, ilens_in, olens_in)
             loss = loss + attn_loss
             report_keys += [
                 {'attn_loss': attn_loss.item()},
@@ -596,10 +727,10 @@ class Tacotron2(TTSInterface, torch.nn.Module):
         
         # thin out input frames for reduction factor (B, Lmax, idim) ->  (B, Lmax // r, idim * r)
         if self.encoder_reduction_factor > 1:
-            B, Lmax, idim = x.shape
+            Lmax, idim = x.shape
             if Lmax % self.encoder_reduction_factor != 0:
-                x = x[:, : -(Lmax % self.encoder_reduction_factor), :]
-            x_ds = x.contiguous().view(B, int(Lmax / self.encoder_reduction_factor), idim * self.encoder_reduction_factor)
+                x = x[: -(Lmax % self.encoder_reduction_factor), :]
+            x_ds = x.contiguous().view(int(Lmax / self.encoder_reduction_factor), idim * self.encoder_reduction_factor)
         else:
             x_ds = x
 
@@ -642,7 +773,7 @@ class Tacotron2(TTSInterface, torch.nn.Module):
                 if Lmax % self.encoder_reduction_factor != 0:
                     xs = xs[:, : -(Lmax % self.encoder_reduction_factor), :]
                 xs_ds = xs.contiguous().view(B, int(Lmax / self.encoder_reduction_factor), idim * self.encoder_reduction_factor)
-                ilens_ds = ilens.new([ilen // self.encoder_reduction_factor for ilen in ilens])
+                ilens_ds = [ilen // self.encoder_reduction_factor for ilen in ilens]
             else:
                 xs_ds, ilens_ds = xs, ilens
             
@@ -672,3 +803,11 @@ class Tacotron2(TTSInterface, torch.nn.Module):
         if self.use_cbhg:
             plot_keys += ['cbhg_l1_loss', 'cbhg_mse_loss']
         return plot_keys
+    
+    def _sort_by_length(self, xs, ilens):
+        sort_ilens, sort_idx = ilens.sort(0, descending=True)
+        return xs[sort_idx], ilens[sort_idx], sort_idx
+
+    def _revert_sort_by_length(self, xs, ilens, sort_idx):
+        _, revert_idx = sort_idx.sort(0)
+        return xs[revert_idx], ilens[revert_idx]

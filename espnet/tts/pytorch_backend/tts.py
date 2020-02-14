@@ -559,7 +559,9 @@ def decode(args):
 
         for idx, utt_id in enumerate(js.keys()):
             batch = [(utt_id, js[utt_id])]
+            print(batch)
             data = load_inputs_and_targets(batch)
+            print(data)
             if train_args.use_speaker_embedding:
                 spemb = data[1][0]
                 spemb = torch.FloatTensor(spemb).to(device)

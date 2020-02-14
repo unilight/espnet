@@ -44,6 +44,13 @@ model=model.loss.best
 n_average=1 # if > 0, the model averaged with n_average ckpts will be used instead of model.loss.best
 griffin_lim_iters=64  # the number of iterations of Griffin-Lim
 
+# pretrained model related
+tts_train_config=
+pretrained_model_path=
+load_partial_pretrained_model="encoder"
+params_to_train="encoder"
+ae_train_config="conf/ae_R2R2.yaml"
+
 # root directory of db
 db_root=downloads
 
@@ -166,18 +173,10 @@ if [ ${stage} -le 3 ] && [ ${stop_stage} -ge 3 ]; then
            --config ${train_config}
 fi
 
-if [ ${n_average} -gt 0 ]; then
-    model=model.last${n_average}.avg.best
-fi
 outdir=${expdir}/outputs_${model}_$(basename ${decode_config%.*})
 if [ ${stage} -le 4 ] && [ ${stop_stage} -ge 4 ]; then
     echo "stage 4: Decoding"
-    if [ ${n_average} -gt 0 ]; then
-        average_checkpoints.py --backend ${backend} \
-                               --snapshots ${expdir}/results/snapshot.ep.* \
-                               --out ${expdir}/results/${model} \
-                               --num ${n_average}
-    fi
+
     pids=() # initialize pids
     for sets in ${train_dev} ${eval_set}; do
     (
@@ -231,5 +230,183 @@ if [ ${stage} -le 5 ] && [ ${stop_stage} -ge 5 ]; then
     done
     i=0; for pid in "${pids[@]}"; do wait ${pid} || ((i++)); done
     [ ${i} -gt 0 ] && echo "$0: ${i} background jobs are failed." && false
+    echo "Finished."
+fi
+
+if [ ${stage} -le 6 ] && [ ${stop_stage} -ge 6 ]; then
+    echo "stage 6: Objective Evaluation for TTS"
+
+    for name in ${dev_set} ${eval_set}; do
+        local/ob_eval/evaluate_cer.sh --nj ${nj} \
+            --do_delta false \
+            --eval_gt ${eval_gt} \
+            --eval_tts ${eval_tts} \
+            --db_root ${db_root} \
+            --backend pytorch \
+            --wer ${wer} \
+            --api v2 \
+            ${asr_model} \
+            ${outdir} \
+            ${name} \
+            ${spk}
+    done
+
+    echo "Finished."
+fi
+
+
+expdir=exp/${expname}
+if [ ${stage} -le 7 ] && [ ${stop_stage} -ge 7 ]; then
+    echo "stage 7: mel autoencoder training"
+
+    # make pair json
+    if [ ! -e ${feat_tr_dir}/ae_data.json ]; then
+        echo "Making training json file for mel autoencoder"
+        local/make_ae_json.py --json ${feat_tr_dir}/data.json -O ${feat_tr_dir}/ae_data.json
+    fi
+    if [ ! -e ${feat_dt_dir}/ae_data.json ]; then
+        echo "Making development json file for mel autoencoder"
+        local/make_ae_json.py --json ${feat_dt_dir}/data.json -O ${feat_dt_dir}/ae_data.json
+    fi
+    if [ ! -e ${feat_ev_dir}/ae_data.json ]; then
+        echo "Making evaluation json file for mel autoencoder"
+        local/make_ae_json.py --json ${feat_ev_dir}/data.json -O ${feat_ev_dir}/ae_data.json
+        exit 1
+    fi
+
+    # check input arguments
+    if [ -z ${tag} ]; then
+        echo "Please specify exp tag."
+        exit 1
+    fi
+    if [ -z ${pretrained_model_path} ]; then
+        echo "Please specify pre-trained tts model path."
+        exit 1
+    fi
+    if [ -z ${tts_train_config} ]; then
+        echo "Please specify pre-trained tts model config."
+        exit 1
+    fi
+
+    expname=${train_set}_${backend}_${tag}
+    expdir=exp/${expname}
+    train_config="$(change_yaml.py -a pretrained-model="${pretrained_model_path}" \
+        -a load-partial-pretrained-model="${load_partial_pretrained_model}" \
+        -a params-to-train="${params_to_train}" \
+        -d model-module \
+        -o "conf/$(basename "${tts_train_config}" .yaml).ae.yaml" "${tts_train_config}")"
+
+    tr_json=${feat_tr_dir}/ae_data.json
+    dt_json=${feat_dt_dir}/ae_data.json
+    ${cuda_cmd} --gpu ${ngpu} ${expdir}/ae_train.log \
+        vc_train.py \
+           --backend ${backend} \
+           --ngpu ${ngpu} \
+           --minibatches ${N} \
+           --outdir ${expdir}/ae_results \
+           --tensorboard-dir tensorboard/${expname} \
+           --verbose ${verbose} \
+           --seed ${seed} \
+           --resume ${resume} \
+           --srcspk jsut \
+           --trgspk jsut \
+           --train-json ${tr_json} \
+           --valid-json ${dt_json} \
+           --config ${train_config} \
+           --config2 ${ae_train_config}
+fi
+
+outdir=${expdir}/ae_outputs_${model}
+if [ ${stage} -le 8 ] && [ ${stop_stage} -ge 8 ]; then
+    echo "stage 8: Mel autoencoder decoding"
+
+    pids=() # initialize pids
+    for name in ${train_dev} ${eval_set}; do
+    (
+        [ ! -e ${outdir}/${name} ] && mkdir -p ${outdir}/${name}
+        cp ${dumpdir}/${name}/ae_data.json ${outdir}/${name}
+        splitjson.py --parts ${nj} ${outdir}/${name}/ae_data.json
+        # decode in parallel
+        ${train_cmd} JOB=1:${nj} ${outdir}/${name}/log/decode.JOB.log \
+            vc_decode.py \
+                --backend ${backend} \
+                --ngpu 0 \
+                --verbose ${verbose} \
+                --out ${outdir}/${name}/feats.JOB \
+                --json ${outdir}/${name}/split${nj}utt/ae_data.JOB.json \
+                --model ${expdir}/ae_results/${model} \
+                --config ${decode_config}
+        # concatenate scp files
+        for n in $(seq ${nj}); do
+            cat "${outdir}/${name}/feats.$n.scp" || exit 1;
+        done > ${outdir}/${name}/feats.scp
+    ) &
+    pids+=($!) # store background pids
+    done
+    i=0; for pid in "${pids[@]}"; do wait ${pid} || ((i++)); done
+    [ ${i} -gt 0 ] && echo "$0: ${i} background jobs are failed." && false
+
+fi
+
+if [ ${stage} -le 9 ] && [ ${stop_stage} -ge 9 ]; then
+    echo "stage 9: Mel autoencoder synthesis"
+    pids=() # initialize pids
+    for name in ${train_dev} ${eval_set}; do
+    (
+        [ ! -e ${outdir}_denorm/${name} ] && mkdir -p ${outdir}_denorm/${name}
+        apply-cmvn --norm-vars=true --reverse=true data/${train_set}/cmvn.ark \
+            scp:${outdir}/${name}/feats.scp \
+            ark,scp:${outdir}_denorm/${name}/feats.ark,${outdir}_denorm/${name}/feats.scp
+        convert_fbank.sh --nj ${nj} --cmd "${train_cmd}" \
+            --fs ${fs} \
+            --fmax "${fmax}" \
+            --fmin "${fmin}" \
+            --n_fft ${n_fft} \
+            --n_shift ${n_shift} \
+            --win_length "${win_length}" \
+            --n_mels ${n_mels} \
+            --iters ${griffin_lim_iters} \
+            ${outdir}_denorm/${name} \
+            ${outdir}_denorm/${name}/log \
+            ${outdir}_denorm/${name}/wav
+
+    ) &
+    pids+=($!) # store background pids
+    done
+    i=0; for pid in "${pids[@]}"; do wait ${pid} || ((i++)); done
+    [ ${i} -gt 0 ] && echo "$0: ${i} background jobs are failed." && false
+fi
+
+if [ ${stage} -le 10 ] && [ ${stop_stage} -ge 10 ]; then
+    echo "stage 10: Mel autoencoder: generate hdf5"
+
+    # generate h5 for WaveNet vocoder
+    for name in ${dev_set} ${eval_set}; do
+        feats2hdf5.py \
+            --scp_file ${outdir}_denorm/${name}/feats.scp \
+            --out_dir ${outdir}_denorm/${name}/hdf5/
+        (find "$(cd ${outdir}_denorm/${name}/hdf5; pwd)" -name "*.h5" -print &) | head > ${outdir}_denorm/${name}/hdf5_feats.scp
+        echo "generated hdf5 for ${name} set"
+    done
+fi
+
+if [ ${stage} -le 11 ] && [ ${stop_stage} -ge 11 ]; then
+    echo "stage 11: Objective Evaluation"
+
+    for name in ${dev_set} ${eval_set}; do
+        local/ob_eval/evaluate_cer.sh --nj ${nj} \
+            --do_delta false \
+            --eval_gt ${eval_gt} \
+            --eval_tts ${eval_tts} \
+            --db_root ${db_root} \
+            --backend pytorch \
+            --wer ${wer} \
+            --api v2 \
+            ${asr_model} \
+            ${outdir} \
+            ${name} \
+            ${spk}
+    done
+
     echo "Finished."
 fi

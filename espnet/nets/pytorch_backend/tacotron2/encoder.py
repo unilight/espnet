@@ -159,6 +159,7 @@ class EncoderNoEmb(torch.nn.Module):
                  econv_layers=3,
                  econv_chans=512,
                  econv_filts=5,
+                 input_layer=None,
                  use_batch_norm=True,
                  use_residual=False,
                  dropout_rate=0.5,
@@ -183,6 +184,8 @@ class EncoderNoEmb(torch.nn.Module):
         self.use_residual = use_residual
 
         # define network layer modules
+        self.input_layer = input_layer
+
         if econv_layers > 0:
             self.convs = torch.nn.ModuleList()
             for layer in six.moves.range(econv_layers):
@@ -226,6 +229,9 @@ class EncoderNoEmb(torch.nn.Module):
             LongTensor: Batch of lengths of each sequence (B,)
 
         """
+        if self.input_layer:
+            xs = self.input_layer(xs)
+
         xs = xs.transpose(1, 2)
         if self.convs is not None:
             for l in six.moves.range(len(self.convs)):

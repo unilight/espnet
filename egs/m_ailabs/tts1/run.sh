@@ -45,6 +45,23 @@ model=model.loss.best
 n_average=1 # if > 0, the model averaged with n_average ckpts will be used instead of model.loss.best
 griffin_lim_iters=64  # the number of iterations of Griffin-Lim
 
+# pretrained model related
+tts_train_config=
+pretrained_model_path=
+load_partial_pretrained_model="encoder"
+params_to_train="encoder"
+ae_train_config="conf/ae_R2R2.yaml"
+
+# pretraining using ASR encoder
+pretrained_model2=
+load_partial_pretrained_model2="encoder"
+
+# objective evaluation related
+asr_model="librispeech.transformer.ngpu4"
+eval_gt=false                                  # true: evaluate ground truth, false: evaluate tts model
+eval_tts=true                                  # true: evaluate tts model, false: evaluate autoencoded speech
+wer=true                                       # true: evaluate CER & WER, false: evaluate only CER
+
 # dataset configuration
 db_root=downloads
 lang=en_US  # en_UK, de_DE, es_ES, it_IT
@@ -90,6 +107,9 @@ fi
 feat_tr_dir=${dumpdir}/${train_set}; mkdir -p ${feat_tr_dir}
 feat_dt_dir=${dumpdir}/${dev_set}; mkdir -p ${feat_dt_dir}
 feat_ev_dir=${dumpdir}/${eval_set}; mkdir -p ${feat_ev_dir}
+feat_tr_pitch_dir=${dumpdir}/${train_set}_pitch; mkdir -p ${feat_tr_pitch_dir}
+feat_dt_pitch_dir=${dumpdir}/${dev_set}_pitch; mkdir -p ${feat_dt_pitch_dir}
+feat_ev_pitch_dir=${dumpdir}/${eval_set}_pitch; mkdir -p ${feat_ev_pitch_dir}
 if [ ${stage} -le 1 ] && [ ${stop_stage} -ge 1 ]; then
     ### Task dependent. You have to design training and dev name by yourself.
     ### But you can utilize Kaldi recipes in most cases
@@ -118,6 +138,14 @@ if [ ${stage} -le 1 ] && [ ${stop_stage} -ge 1 ]; then
         data/${org_set} \
         exp/make_fbank/${org_set} \
         ${fbankdir}
+        
+    # Generate the fbank+pitch features; by default 80-dimensional fbanks on each frame
+    steps/make_fbank_pitch.sh --cmd "${train_cmd}" --nj ${nj} \
+        --write_utt2num_frames true \
+        data/${org_set}_pitch \
+        exp/make_fbank/${org_set}_pitch \
+        ${fbankdir}
+    utils/fix_data_dir.sh data/${org_set}_pitch
 
     # make a dev set
     utils/subset_data_dir.sh --last data/${org_set} 500 data/${org_set}_tmp
@@ -127,8 +155,17 @@ if [ ${stage} -le 1 ] && [ ${stop_stage} -ge 1 ]; then
     utils/subset_data_dir.sh --first data/${org_set} ${n} data/${train_set}
     rm -rf data/${org_set}_tmp
 
+    utils/subset_data_dir.sh --last data/${org_set}_pitch 500 data/${org_set}_pitch_tmp
+    utils/subset_data_dir.sh --last data/${org_set}_pitch_tmp 250 data/${eval_set}_pitch
+    utils/subset_data_dir.sh --first data/${org_set}_pitch_tmp 250 data/${dev_set}_pitch
+    n=$(( $(wc -l < data/${org_set}_pitch/wav.scp) - 500 ))
+    utils/subset_data_dir.sh --first data/${org_set}_pitch ${n} data/${train_set}_pitch
+    rm -rf data/${org_set}_tmp
+
     # compute statistics for global mean-variance normalization
-    compute-cmvn-stats scp:data/${train_set}/feats.scp data/${train_set}/cmvn.ark
+    compute-cmvn-stats scp:data/${train_set}_pitch/feats.scp data/${train_set}_pitch/cmvn.ark
+    # for ASR input features: normalize using the cmvn of pretrained ASR model(`pretrained_model2` is the ASR model)
+    cmvn_asr=$(find ${pretrained_model2} -name "cmvn.ark" | head -n 1)
 
     # dump features for training
     dump.sh --cmd "$train_cmd" --nj ${nj} --do_delta false \
@@ -137,6 +174,12 @@ if [ ${stage} -le 1 ] && [ ${stop_stage} -ge 1 ]; then
         data/${dev_set}/feats.scp data/${train_set}/cmvn.ark exp/dump_feats/${dev_set} ${feat_dt_dir}
     dump.sh --cmd "$train_cmd" --nj ${nj} --do_delta false \
         data/${eval_set}/feats.scp data/${train_set}/cmvn.ark exp/dump_feats/${eval_set} ${feat_ev_dir}
+    dump.sh --cmd "$train_cmd" --nj ${nj} --do_delta false \
+        data/${train_set}_pitch/feats.scp ${cmvn_asr} exp/dump_feats/${train_set}_pitch ${feat_tr_pitch_dir}
+    dump.sh --cmd "$train_cmd" --nj ${nj} --do_delta false \
+        data/${dev_set}_pitch/feats.scp ${cmvn_asr} exp/dump_feats/${dev_set}_pitch ${feat_dt_pitch_dir}
+    dump.sh --cmd "$train_cmd" --nj ${nj} --do_delta false \
+        data/${eval_set}_pitch/feats.scp ${cmvn_asr} exp/dump_feats/${eval_set}_pitch ${feat_ev_pitch_dir}
 fi
 
 dict=data/lang_1char/${train_set}_units.txt
@@ -157,6 +200,20 @@ if [ ${stage} -le 2 ] && [ ${stop_stage} -ge 2 ]; then
          data/${dev_set} ${dict} > ${feat_dt_dir}/data.json
     data2json.sh --feat ${feat_ev_dir}/feats.scp \
          data/${eval_set} ${dict} > ${feat_ev_dir}/data.json
+    data2json.sh --feat ${feat_tr_pitch_dir}/feats.scp \
+         data/${train_set}_pitch ${dict} > ${feat_tr_pitch_dir}/data.json
+    data2json.sh --feat ${feat_dt_pitch_dir}/feats.scp \
+         data/${dev_set}_pitch ${dict} > ${feat_dt_pitch_dir}/data.json
+    data2json.sh --feat ${feat_ev_pitch_dir}/feats.scp \
+         data/${eval_set}_pitch ${dict} > ${feat_ev_pitch_dir}/data.json
+        
+    # make ae json, using 83-d input and 80-d output
+    local/make_asr_ae_json.py --input_json ${feat_tr_pitch_dir}/data.json \
+        --output_json ${feat_tr_dir}/data.json -O ${feat_tr_dir}/asr_ae_data.json
+    local/make_asr_ae_json.py --input_json ${feat_dt_pitch_dir}/data.json \
+        --output_json ${feat_dt_dir}/data.json -O ${feat_dt_dir}/asr_ae_data.json
+    local/make_asr_ae_json.py --input_json ${feat_ev_pitch_dir}/data.json \
+        --output_json ${feat_ev_dir}/data.json -O ${feat_ev_dir}/asr_ae_data.json
 fi
 
 if [ -z ${tag} ]; then
@@ -165,9 +222,11 @@ else
     expname=${train_set}_${backend}_${tag}
 fi
 expdir=exp/${expname}
-mkdir -p ${expdir}
 if [ ${stage} -le 3 ] && [ ${stop_stage} -ge 3 ]; then
     echo "stage 3: Text-to-speech model training"
+
+    mkdir -p ${expdir}
+
     tr_json=${feat_tr_dir}/data.json
     dt_json=${feat_dt_dir}/data.json
     ${cuda_cmd} --gpu ${ngpu} ${expdir}/train.log \
@@ -251,4 +310,313 @@ if [ ${stage} -le 5 ] && [ ${stop_stage} -ge 5 ]; then
     i=0; for pid in "${pids[@]}"; do wait ${pid} || ((i++)); done
     [ ${i} -gt 0 ] && echo "$0: ${i} background jobs are failed." && false
     echo "Finished."
+fi
+
+if [ ${stage} -le 6 ] && [ ${stop_stage} -ge 6 ]; then
+    echo "stage 6: Objective Evaluation for TTS"
+
+    for name in ${dev_set} ${eval_set}; do
+        local/ob_eval/evaluate_cer.sh --nj ${nj} \
+            --do_delta false \
+            --eval_gt ${eval_gt} \
+            --eval_tts ${eval_tts} \
+            --db_root ${db_root} \
+            --backend pytorch \
+            --wer ${wer} \
+            --api v2 \
+            ${asr_model} \
+            ${outdir} \
+            ${name} \
+            ${spk}
+    done
+
+    echo "Finished."
+fi
+
+
+expdir=exp/${expname}
+if [ ${stage} -le 7 ] && [ ${stop_stage} -ge 7 ]; then
+    echo "stage 7: mel autoencoder training"
+
+    # make pair json
+    if [ ! -e ${feat_tr_dir}/ae_data.json ]; then
+        echo "Making training json file for mel autoencoder"
+        local/make_ae_json.py --json ${feat_tr_dir}/data.json -O ${feat_tr_dir}/ae_data.json
+    fi
+    if [ ! -e ${feat_dt_dir}/ae_data.json ]; then
+        echo "Making development json file for mel autoencoder"
+        local/make_ae_json.py --json ${feat_dt_dir}/data.json -O ${feat_dt_dir}/ae_data.json
+    fi
+    if [ ! -e ${feat_ev_dir}/ae_data.json ]; then
+        echo "Making evaluation json file for mel autoencoder"
+        local/make_ae_json.py --json ${feat_ev_dir}/data.json -O ${feat_ev_dir}/ae_data.json
+        exit 1
+    fi
+
+    # check input arguments
+    if [ -z ${tag} ]; then
+        echo "Please specify exp tag."
+        exit 1
+    fi
+    if [ -z ${pretrained_model_path} ]; then
+        echo "Please specify pre-trained tts model path."
+        exit 1
+    fi
+    if [ -z ${tts_train_config} ]; then
+        echo "Please specify pre-trained tts model config."
+        exit 1
+    fi
+
+    expname=${train_set}_${backend}_${tag}
+    expdir=exp/${expname}
+    train_config="$(change_yaml.py -a pretrained-model="${pretrained_model_path}" \
+        -a load-partial-pretrained-model="${load_partial_pretrained_model}" \
+        -a params-to-train="${params_to_train}" \
+        -d model-module \
+        -o "conf/$(basename "${tts_train_config}" .yaml).ae.yaml" "${tts_train_config}")"
+
+    tr_json=${feat_tr_dir}/ae_data.json
+    dt_json=${feat_dt_dir}/ae_data.json
+    ${cuda_cmd} --gpu ${ngpu} ${expdir}/ae_train.log \
+        vc_train.py \
+           --backend ${backend} \
+           --ngpu ${ngpu} \
+           --minibatches ${N} \
+           --outdir ${expdir}/ae_results \
+           --tensorboard-dir tensorboard/${expname} \
+           --verbose ${verbose} \
+           --seed ${seed} \
+           --resume ${resume} \
+           --srcspk ${spk} \
+           --trgspk ${spk} \
+           --train-json ${tr_json} \
+           --valid-json ${dt_json} \
+           --config ${train_config} \
+           --config2 ${ae_train_config}
+fi
+
+outdir=${expdir}/ae_outputs_${model}
+if [ ${stage} -le 8 ] && [ ${stop_stage} -ge 8 ]; then
+    echo "stage 8: Mel autoencoder decoding"
+
+    pids=() # initialize pids
+    for name in ${dev_set} ${eval_set}; do
+    (
+        [ ! -e ${outdir}/${name} ] && mkdir -p ${outdir}/${name}
+        cp ${dumpdir}/${name}/ae_data.json ${outdir}/${name}
+        splitjson.py --parts ${nj} ${outdir}/${name}/ae_data.json
+        # decode in parallel
+        ${train_cmd} JOB=1:${nj} ${outdir}/${name}/log/decode.JOB.log \
+            vc_decode.py \
+                --backend ${backend} \
+                --ngpu 0 \
+                --verbose ${verbose} \
+                --out ${outdir}/${name}/feats.JOB \
+                --json ${outdir}/${name}/split${nj}utt/ae_data.JOB.json \
+                --model ${expdir}/ae_results/${model} \
+                --config ${decode_config}
+        # concatenate scp files
+        for n in $(seq ${nj}); do
+            cat "${outdir}/${name}/feats.$n.scp" || exit 1;
+        done > ${outdir}/${name}/feats.scp
+    ) &
+    pids+=($!) # store background pids
+    done
+    i=0; for pid in "${pids[@]}"; do wait ${pid} || ((i++)); done
+    [ ${i} -gt 0 ] && echo "$0: ${i} background jobs are failed." && false
+
+fi
+
+if [ ${stage} -le 9 ] && [ ${stop_stage} -ge 9 ]; then
+    echo "stage 9: Mel autoencoder synthesis"
+    pids=() # initialize pids
+    for name in ${dev_set} ${eval_set}; do
+    (
+        [ ! -e ${outdir}_denorm/${name} ] && mkdir -p ${outdir}_denorm/${name}
+        apply-cmvn --norm-vars=true --reverse=true data/${train_set}/cmvn.ark \
+            scp:${outdir}/${name}/feats.scp \
+            ark,scp:${outdir}_denorm/${name}/feats.ark,${outdir}_denorm/${name}/feats.scp
+        convert_fbank.sh --nj ${nj} --cmd "${train_cmd}" \
+            --fs ${fs} \
+            --fmax "${fmax}" \
+            --fmin "${fmin}" \
+            --n_fft ${n_fft} \
+            --n_shift ${n_shift} \
+            --win_length "${win_length}" \
+            --n_mels ${n_mels} \
+            --iters ${griffin_lim_iters} \
+            ${outdir}_denorm/${name} \
+            ${outdir}_denorm/${name}/log \
+            ${outdir}_denorm/${name}/wav
+
+    ) &
+    pids+=($!) # store background pids
+    done
+    i=0; for pid in "${pids[@]}"; do wait ${pid} || ((i++)); done
+    [ ${i} -gt 0 ] && echo "$0: ${i} background jobs are failed." && false
+fi
+
+if [ ${stage} -le 10 ] && [ ${stop_stage} -ge 10 ]; then
+    echo "stage 10: Mel autoencoder: generate hdf5"
+
+    # generate h5 for WaveNet vocoder
+    for name in ${dev_set} ${eval_set}; do
+        feats2hdf5.py \
+            --scp_file ${outdir}_denorm/${name}/feats.scp \
+            --out_dir ${outdir}_denorm/${name}/hdf5/
+        (find "$(cd ${outdir}_denorm/${name}/hdf5; pwd)" -name "*.h5" -print &) | head > ${outdir}_denorm/${name}/hdf5_feats.scp
+        echo "generated hdf5 for ${name} set"
+    done
+fi
+
+if [ ${stage} -le 11 ] && [ ${stop_stage} -ge 11 ]; then
+    echo "stage 11: Objective Evaluation"
+
+    for name in ${dev_set} ${eval_set}; do
+        local/ob_eval/evaluate_cer.sh --nj ${nj} \
+            --do_delta false \
+            --eval_gt ${eval_gt} \
+            --eval_tts ${eval_tts} \
+            --db_root ${db_root} \
+            --backend pytorch \
+            --wer ${wer} \
+            --api v2 \
+            ${asr_model} \
+            ${outdir} \
+            ${name} \
+            ${spk}
+    done
+
+    echo "Finished."
+fi
+
+###############################################################
+
+expdir=exp/${expname}
+if [ ${stage} -le 12 ] && [ ${stop_stage} -ge 12 ]; then
+    echo "stage 12: decoder pretraining using ASR encoder"
+
+    # check input arguments
+    if [ -z ${tag} ]; then
+        echo "Please specify exp tag."
+        exit 1
+    fi
+    if [ -z ${pretrained_model2} ]; then
+        echo "Please specify pre-trained asr model."
+        exit 1
+    fi
+    if [ -z ${pretrained_model_path} ]; then
+        echo "Please specify pre-trained tts model."
+        exit 1
+    fi
+
+    # here, pretrained_model is the TTS decoder, pretrained_model2 is the ASR encoder
+    # add pretrained model info in config
+    
+    # pretrained_model_path=$(find ${download_dir}/${pretrained_model} -name "model*.best" | head -n 1)
+    pretrained_model2_path=$(find ${db_root}/${pretrained_model2} -name "model*.best" | head -n 1)
+    train_config="$(change_yaml.py \
+        -a pretrained-model="${pretrained_model_path}" \
+        -a load-partial-pretrained-model="${load_partial_pretrained_model}" \
+        -a pretrained-model2="${pretrained_model2_path}" \
+        -a load-partial-pretrained-model2="${load_partial_pretrained_model2}" \
+        -o "conf/$(basename "${train_config}" .yaml).${pretrained_model2}.yaml" "${train_config}")"
+
+    tr_json=${feat_tr_dir}/asr_ae_data.json
+    dt_json=${feat_dt_dir}/asr_ae_data.json
+    ${cuda_cmd} --gpu ${ngpu} ${expdir}/second_ae_train.log \
+        vc_train.py \
+           --backend ${backend} \
+           --ngpu ${ngpu} \
+           --minibatches ${N} \
+           --outdir ${expdir}/second_ae_results \
+           --tensorboard-dir tensorboard/${expname} \
+           --verbose ${verbose} \
+           --seed ${seed} \
+           --resume ${resume} \
+           --srcspk ${spk} \
+           --trgspk ${spk} \
+           --train-json ${tr_json} \
+           --valid-json ${dt_json} \
+           --config ${train_config}
+fi
+
+if [ ${stage} -le 13 ] && [ ${stop_stage} -ge 13 ]; then
+    echo "stage 13: Pretrained decoder: decoding, Synthesis, and hdf5 generation"
+
+    if [ -z ${tag} ]; then
+        echo 'Please specify experiment tag'
+        exit 1
+    fi
+    
+    expname=${ae_train_set}_${tag}
+    expdir=exp/${expname}
+    outdir=${expdir}/${srcspk}_outputs_${model}_$(basename ${decode_config%.*})
+    echo $outdir
+    
+    pids=() # initialize pids
+    for name in ${pair_dev_set} ${pair_eval_set}; do
+    (
+        [ ! -e ${outdir}/${name} ] && mkdir -p ${outdir}/${name}
+        cp ${dumpdir}/${name}/data.json ${outdir}/${name}
+        splitjson.py --parts ${nj} ${outdir}/${name}/data.json
+        # decode in parallel
+        ${train_cmd} JOB=1:${nj} ${outdir}/${name}/log/decode.JOB.log \
+            vc_decode.py \
+                --backend ${backend} \
+                --ngpu 0 \
+                --verbose ${verbose} \
+                --out ${outdir}/${name}/feats.JOB \
+                --json ${outdir}/${name}/split${nj}utt/data.JOB.json \
+                --model ${expdir}/ae_results/${model} \
+                --model-conf ${expdir}/ae_results/model.json \
+                --config ${decode_config}
+        # concatenate scp files
+        for n in $(seq ${nj}); do
+            cat "${outdir}/${name}/feats.$n.scp" || exit 1;
+        done > ${outdir}/${name}/feats.scp
+    ) &
+    pids+=($!) # store background pids
+    done
+    i=0; for pid in "${pids[@]}"; do wait ${pid} || ((i++)); done
+    [ ${i} -gt 0 ] && echo "$0: ${i} background jobs are failed." && false
+    
+    # Synthesis
+    pids=() # initialize pids
+    for name in ${pair_dev_set} ${pair_eval_set}; do
+    (
+        [ ! -e ${outdir}_denorm/${name} ] && mkdir -p ${outdir}_denorm/${name}
+        # use pretrained model cmvn
+        cmvn=$(find ${download_dir}/${pretrained_model} -name "cmvn.ark" | head -n 1)
+        apply-cmvn --norm-vars=true --reverse=true ${cmvn} \
+            scp:${outdir}/${name}/feats.scp \
+            ark,scp:${outdir}_denorm/${name}/feats.ark,${outdir}_denorm/${name}/feats.scp
+        convert_fbank.sh --nj ${nj} --cmd "${train_cmd}" \
+            --fs ${fs} \
+            --fmax "${fmax}" \
+            --fmin "${fmin}" \
+            --n_fft ${n_fft} \
+            --n_shift ${n_shift} \
+            --win_length "${win_length}" \
+            --n_mels ${n_mels} \
+            --iters ${griffin_lim_iters} \
+            ${outdir}_denorm/${name} \
+            ${outdir}_denorm/${name}/log \
+            ${outdir}_denorm/${name}/wav
+    
+    ) &
+    pids+=($!) # store background pids
+    done
+    i=0; for pid in "${pids[@]}"; do wait ${pid} || ((i++)); done
+    [ ${i} -gt 0 ] && echo "$0: ${i} background jobs are failed." && false
+    
+    # generate h5 for neural vocoder
+    for name in ${pair_dev_set} ${pair_eval_set}; do
+        feats2hdf5.py \
+            --scp_file ${outdir}_denorm/${name}/feats.scp \
+            --out_dir ${outdir}_denorm/${name}/hdf5/
+        (find "$(cd ${outdir}_denorm/${name}/hdf5; pwd)" -name "*.h5" -print &) | head > ${outdir}_denorm/${name}/hdf5_feats.scp
+        echo "generated hdf5 for ${name} set"
+    done
+
 fi

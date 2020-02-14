@@ -122,6 +122,9 @@ class E2E(ASRInterface, torch.nn.Module):
             self.error_calculator = None
         self.rnnlm = None
 
+        for name, param in self.named_parameters():
+            print("\t", name, param.shape)
+
     def reset_parameters(self, args):
         # initialize parameters
         initialize(self, args.transformer_init)

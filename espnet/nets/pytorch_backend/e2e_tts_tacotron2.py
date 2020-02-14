@@ -292,6 +292,8 @@ class Tacotron2(TTSInterface, torch.nn.Module):
                            help="Number of spectrogram dimensions")
         group.add_argument("--pretrained-model", default=None, type=str,
                            help="Pretrained model path")
+        group.add_argument("--train-embedding", default=True, type=strtobool,
+                           help="Whether to train the embeddings")
         # loss related
         group.add_argument('--use-masking', default=False, type=strtobool,
                            help='Whether to use masking in calculation of loss')
@@ -459,6 +461,15 @@ class Tacotron2(TTSInterface, torch.nn.Module):
         # load pretrained model
         if args.pretrained_model is not None:
             self.load_pretrained_model(args.pretrained_model)
+        
+        if not args.train_embedding:
+            print("Start printing original model params")
+            for name, param in self.state_dict().items():
+                if "enc.embed" in name:
+                    param.requires_grad = False
+                    print("\t", name, param.shape, "freezed")
+                else:
+                    print("\t", name, param.shape)
 
     def forward(self, xs, ilens, ys, labels, olens, spembs=None, spcs=None, *args, **kwargs):
         """Calculate forward propagation.
