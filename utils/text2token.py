@@ -98,7 +98,7 @@ def main():
                 else:
                     chars.append(a[i])
                     i += 1
-            a = chars
+            a = ''.join(chars)
 
         if(args.trans_type == "phn"):
             a = a.split(" ")

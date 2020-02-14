@@ -1,0 +1,20 @@
+20191222
+
+Needs 2 configs: 
+1. original tts config
+    Most of the model parameters are in this config.
+    Specified using the --tts-train-config
+2. ae config
+    Two things are specified:
+    (1) encoder-reduction-factor
+    (2) model-module
+
+So, need to copy conf/ae_R2R2.yaml and conf/ae_decode.yaml
+
+Be careful it is --pretrained_model_path_ae but not --pretrained_model_path
+
+cmd:
+CUDA_VISIBLE_DEVICES=0 ./run.sh --stage 9 --stop_stage 9 --spk slt \
+    --tag train_pytorch_transformer.v2.R2.single.finetune.mailabs.en_US.judy.transformer.v1.single.R2 \
+    --pretrained_model_path_ae exp/slt_train_no_dev_pytorch_train_pytorch_transformer.v2.R2.single.finetune.mailabs.en_US.judy.transformer.v1.single.R2/results/model.loss.best \
+    --tts_train_config conf/train_pytorch_transformer.v2.R2.single.finetune.yaml

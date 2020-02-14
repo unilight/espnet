@@ -1,0 +1,2 @@
+encoder-reduction-factor: 2
+model-module: espnet.nets.pytorch_backend.vc_transformer:Transformer

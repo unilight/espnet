@@ -26,4 +26,3 @@ if __name__ == "__main__":
         for utt_id, arr in f:
             out_path = join(args.out_dir, "{}-feats.h5".format(utt_id))
             write_hdf5(out_path, "/melspc", np.float32(arr))
-    sys.exit(0)
