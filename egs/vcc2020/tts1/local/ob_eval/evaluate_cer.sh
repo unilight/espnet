@@ -31,17 +31,13 @@ set -euo pipefail
 
 # Decide wavdir
 if [ ${vocoder} != "None" ]; then
-    echo "Evaluate: TTS model"
-
-    # select vocoder type (GL, WNV, PWG)
-    if [ ${vocoder} == "WNV" ]; then
-        wavdir=${outdir}_denorm/${set_name}/wnv_wav_nsf
-    elif [ ${vocoder} == "PWG" ]; then
+    # select vocoder type (GL, PWG)
+    if [ ${vocoder} == "PWG" ]; then
         wavdir=${outdir}_denorm/${set_name}/pwg_wav
     elif [ ${vocoder} == "GL" ]; then
         wavdir=${outdir}_denorm/${set_name}/wav
     else
-        echo "Vocoder type other than GL, WNV, PWG is not supported!"
+        echo "Vocoder type other than GL, PWG is not supported!"
         exit 1
     fi
 
@@ -50,6 +46,8 @@ else
     echo "Please specify vocoder."
     exit 1
 fi
+
+# Get transcription
 
 echo "step 0: Model preparation"
 # ASR model selection for CER objective evaluation 
@@ -102,9 +100,9 @@ asr_result_dir="${outdir}_denorm.ob_eval/${asr_model}_asr.result"
 echo "step 1: Data preparation for ASR"
 # Data preparation for ASR
 if [ ${asr_model} = "aishell.transformer" ]; then
-    local/ob_eval/data_prep_for_asr_mandarin.sh ${wavdir} ${asr_data_dir}/${name} ../vc/downloads/prompts/Man_transcriptions.txt
+    local/ob_eval/data_prep_for_asr_mandarin.sh ${wavdir} ${asr_data_dir}/${name} ${db_root}/prompts/Man_transcriptions.txt
 elif [ ${asr_model} = "librispeech.transformer.ngpu4" ]; then
-    local/ob_eval/data_prep_for_asr_english.sh ${wavdir} ${asr_data_dir}/${name} ../vc/downloads/prompts/Eng_transcriptions.txt
+    local/ob_eval/data_prep_for_asr_english.sh ${wavdir} ${asr_data_dir}/${name} ${db_root}/prompts/Eng_transcriptions.txt
 fi
 utils/validate_data_dir.sh --no-feats ${asr_data_dir}/${name}
 

@@ -85,6 +85,12 @@ trg_decoded_feat=
 vc_dump_dir=
 pseudo_data_tag=
 
+# VCC2020 baseline: cascade ASR + TTS
+list_file=${db_root}/lists/eval_list.txt 
+transciption_file=${db_root}/prompts/Eng_transcriptions.txt # optional, should not be available at test time
+#transciption_file= # optional, should not be available at test time
+tts_model_dir=
+
 # objective evaluation related
 asr_model="librispeech.transformer.ngpu4"
 eval_tts_model=true                            # true: evaluate tts model, false: evaluate ground truth
@@ -494,17 +500,150 @@ if [ ${stage} -le 10 ] && [ ${stop_stage} -ge 10 ]; then
     echo "Finished."
 fi
 
+################################################
 
-################################################3
+# VCC2020 baseline: cascade ASR + TTS
 
+if [ ${stage} -le 11 ] && [ ${stop_stage} -ge 11 ]; then
+    echo "stage 11: Recognize the eval set"
 
-if [ -z ${model} ]; then
-    echo "Please specify model!"
-    exit 1
+    expdir=exp/${srcspk}_eval_asr
+    [ ! -e ${expdir} ] && mkdir -p ${expdir}
+    
+    local/recognize.sh --nj ${nj} \
+        --db_root ${db_root} \
+        --backend pytorch \
+        --wer ${wer} \
+        --api v2 \
+        exp/${asr_model}_asr \
+        ${expdir} \
+        ${db_root}/${srcspk} \
+        ${srcspk} \
+        ${list_file} \
+        ${transciption_file}
+
 fi
-outdir=${expdir}/outputs_${model}_$(basename ${decode_config%.*})
+    
+if [ ${stage} -le 12 ] && [ ${stop_stage} -ge 12 ]; then
+    echo "stage 12: Decoding, Synthesis, hdf5 generation"
+    
+    if [ -z ${tts_model_dir} ]; then
+        echo "Please specify tts_model_dir!"
+        exit 1
+    fi
+    pairname=${srcspk}_${trgspk}_eval
+    outdir=exp/${srcspk}_eval_asr/$(basename ${tts_model_dir})_${model}; mkdir -p ${outdir}
+    tts_datadir=exp/${srcspk}_eval_asr/data_tts; mkdir -p ${tts_datadir}
+    text=${tts_datadir}/text
+    dict=$(find ${download_dir}/${pretrained_model} -name "*_units.txt" | head -n 1)
+
+    echo "Data preparation..."
+    # clean text from asr result
+    echo "Cleaning text..."
+    local/clean_text_asr_result.py \
+        exp/${srcspk}_eval_asr/result/hyp.wrd.trn \
+        $trans_type en_US > ${text}
+    sed -i "s~${srcspk}~${trgspk}~g" ${text}
+
+    # data2json.sh needs utt2spk
+    echo "Making data.json ..."
+    cp exp/${srcspk}_eval_asr/data_asr/utt2spk ${tts_datadir}/utt2spk_tmp
+    sed -i "s~${srcspk}~${trgspk}~g" ${tts_datadir}/utt2spk
+    data2json.sh --trans_type ${trans_type} \
+         ${tts_datadir} ${dict} > ${tts_datadir}/data.json
+    
+    # use the avg x-vector in target speaker training set
+    # NOTE: I am actually not sure if we can only have spkemb as only input in data.json
+    # will we need a dummy input1?
+    echo "Updating x vector..."
+    nnet_dir=exp/xvector_nnet_1a
+    trgspk_train_set=${trgspk}_train_no_dev
+    x_vector_ark=$(awk -v spk=$spk '/spk/{print $NF}' ${nnet_dir}/xvectors_${trgspk_train_set}/spk_xvector.scp)
+    sed "s~ ${trgspk}~ $x_vector_ark~" ${tts_datadir}/utt2spk > ${tts_datadir}/xvector.scp
+    local/update_json.sh ${tts_datadir}/data.json ${tts_datadir}/xvector.scp
+
+    echo "Decoding"
+    [ ! -e ${outdir}/${pairname} ] && mkdir -p ${outdir}/${pairname}
+    cp ${tts_datadir}/data.json ${outdir}/${pairname}/
+    splitjson.py --parts ${nj} ${outdir}/${pairname}/data.json
+    # decode in parallel
+    ${train_cmd} JOB=1:${nj} ${outdir}/${pairname}/log/decode.JOB.log \
+        tts_decode.py \
+            --backend ${backend} \
+            --ngpu 0 \
+            --verbose ${verbose} \
+            --out ${outdir}/${pairname}/feats.JOB \
+            --json ${outdir}/${pairname}/split${nj}utt/data.JOB.json \
+            --model ${tts_model_dir}/results/${model} \
+            --config ${decode_config}
+    # concatenate scp files
+    for n in $(seq ${nj}); do
+        cat "${outdir}/${pairname}/feats.$n.scp" || exit 1;
+    done > ${outdir}/${pairname}/feats.scp
+    
+    echo "Synthesis"
+    [ ! -e ${outdir}_denorm/${pairname} ] && mkdir -p ${outdir}_denorm/${pairname}
+    # use pretrained model cmvn
+    cmvn=$(find ${download_dir}/${pretrained_model} -name "cmvn.ark" | head -n 1)
+    apply-cmvn --norm-vars=true --reverse=true ${cmvn} \
+        scp:${outdir}/${pairname}/feats.scp \
+        ark,scp:${outdir}_denorm/${pairname}/feats.ark,${outdir}_denorm/${pairname}/feats.scp
+    convert_fbank.sh --nj ${nj} --cmd "${train_cmd}" \
+        --fs ${fs} \
+        --fmax "${fmax}" \
+        --fmin "${fmin}" \
+        --n_fft ${n_fft} \
+        --n_shift ${n_shift} \
+        --win_length "${win_length}" \
+        --n_mels ${n_mels} \
+        --iters ${griffin_lim_iters} \
+        ${outdir}_denorm/${pairname}/ \
+        ${outdir}_denorm/${pairname}/log \
+        ${outdir}_denorm/${pairname}/wav
+    
+    echo "Generate hdf5"
+    # generate h5 for WaveNet vocoder
+    feats2hdf5.py \
+        --scp_file ${outdir}_denorm/${pairname}/feats.scp \
+        --out_dir ${outdir}_denorm/${pairname}/hdf5/
+    (find "$(cd ${outdir}_denorm/${pairname}/hdf5; pwd)" -name "*.h5" -print &) | head > ${outdir}_denorm/${pairname}/hdf5_feats.scp
+    echo "generated hdf5"
+
+fi
+
+if [ ${stage} -le 13 ] && [ ${stop_stage} -ge 13 ]; then
+    echo "stage 13: Objective Evaluation"
+    
+    pairname=${srcspk}_${trgspk}_eval
+    outdir=exp/${srcspk}_eval_asr/$(basename ${tts_model_dir})_${model}
+
+    local/ob_eval/evaluate_cer.sh --nj ${nj} \
+        --do_delta false \
+        --eval_tts_model ${eval_tts_model} \
+        --db_root ${db_root} \
+        --backend pytorch \
+        --wer ${wer} \
+        --vocoder ${vocoder} \
+        --api v2 \
+        ${asr_model} \
+        ${outdir} \
+        ${pairname}
+
+    echo "Finished."
+fi
+
+
+
+################################################
+
 if [ ${stage} -le 15 ] && [ ${stop_stage} -ge 15 ]; then
     echo "stage 15: Training set decoding, synthesizing"
+
+    if [ -z ${model} ]; then
+        echo "Please specify model!"
+        exit 1
+    fi
+    outdir=${expdir}/outputs_${model}_$(basename ${decode_config%.*})
 
     echo "Decoding"
     pids=() # initialize pids

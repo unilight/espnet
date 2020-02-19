@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Copyright 2019 Okayama University (Katsuki Inoue)
+# Copyright 2020 Nagoya University (Wen-Chin Huang)
 #  Apache 2.0  (http://www.apache.org/licenses/LICENSE-2.0)
 
 db=$1
@@ -30,7 +30,7 @@ text=${data_dir}/text
 find ${db} -name "*.wav" | sort | while read -r filename;do
     id=$(basename ${filename} | sed -e "s/\.[^\.]*$//g"| sed -e "s/-feats_gen//g")
     echo "${id} ffmpeg -loglevel warning -i ${filename} -ac 1 -ar 16000 -acodec pcm_s16le -f wav -y - |" >> ${scp}
-    echo "${id} LJ" >> ${utt2spk}
+    echo "${id} Dummy" >> ${utt2spk}
 done
 utils/utt2spk_to_spk2utt.pl ${utt2spk} > ${spk2utt}
 echo "finished making wav.scp, utt2spk, spk2utt."
