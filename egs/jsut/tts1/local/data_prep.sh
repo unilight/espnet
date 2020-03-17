@@ -35,7 +35,7 @@ echo "finished making wav.scp, utt2spk, spk2utt."
 find ${db} -follow -name "transcript_utf8.txt" | sort | while read -r filename; do
     cat ${filename} >> ${rawtext}
 done
-local/clean_text.py \
+PYTHONHTTPSVERIFY=0 local/clean_text.py \
     ${rawtext} ${text} ${input_type}
 rm ${rawtext}
 echo "finished making text."

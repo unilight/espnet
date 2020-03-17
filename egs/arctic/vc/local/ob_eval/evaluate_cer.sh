@@ -3,28 +3,30 @@
 # Copyright 2019 Okayama University (Katsuki Inoue)
 #  Apache 2.0  (http://www.apache.org/licenses/LICENSE-2.0)
 
+# 2019.12
+# Objective eval script for mel autoencoded speech (Gl synthesized speech only)
+
+
 echo "$0 $*"  # Print the command line for logging
 . ./path.sh
 
 nj=1
 do_delta=false
-eval_model=true
+eval_tts_model=true
 db_root=""
 backend=pytorch
 wer=false
-wnv=false
 api=v2
-help_message="Usage: $0 <asr_model> <outdir> <subset> <trg_subset> <trgspk>"
+help_message="Usage: $0 <asr_model> <outdir> <subset>"
 
 . utils/parse_options.sh
 
 asr_model=$1
 outdir=$2
 name=$3
-trg_name=$4
-trgspk=$5
+aespk=$4
 
-if [ $# != 5 ]; then
+if [ $# != 4 ]; then
     echo "${help_message}"
     exit 1;
 fi
@@ -54,8 +56,8 @@ fi
 echo "ASR model: ${asr_model_dir} exits."
 
 # Select TTS model
-if [ ${eval_model} == true ]; then
-    echo "Evaluate: trained model"
+if [ ${eval_tts_model} == true ]; then
+    echo "Evaluate: TTS model"
 else
     echo "Evaluate: ground truth"
     expdir=exp/ground_truth
@@ -73,12 +75,6 @@ else
     done
 fi
 
-# select wnv generated speech or GL recovered speech
-if [ ${wnv} == true ]; then
-    wavdir=${outdir}_denorm/${name}/wnv_wav_nsf
-else
-    wavdir=${outdir}_denorm/${name}/wav
-fi
 
 # setting dir
 asr_data_dir="${outdir}_denorm.ob_eval/${asr_model}_asr.data"
@@ -89,8 +85,8 @@ asr_result_dir="${outdir}_denorm.ob_eval/${asr_model}_asr.result"
 
 echo "step 1: Data preparation for ASR"
 # Data preparation for ASR
-local/ob_eval/data_prep_for_asr.sh ${wavdir} ${asr_data_dir}/${name} ${trgspk}
-cp data/${trg_name}/text ${asr_data_dir}/${name}/text
+local/ob_eval/data_prep_for_asr.sh ${outdir}_denorm/${name}/wav ${asr_data_dir}/${name} ${aespk}
+cp data/${name}/text ${asr_data_dir}/${name}/text
 utils/validate_data_dir.sh --no-feats ${asr_data_dir}/${name}
 
 

@@ -122,3 +122,14 @@ def custom_english_cleaners(text):
     text = uppercase(text)
     text = collapse_whitespace(text)
     return text
+
+def custom_finnish_cleaners(text):
+    '''Custom pipeline for English text, including number and abbreviation expansion.'''
+    text = lowercase(text)
+    text = expand_numbers(text)
+    text = expand_abbreviations(text)
+    text = expand_symbols(text)
+    text = remove_unnecessary_symbols(text)
+    text = uppercase(text)
+    text = collapse_whitespace(text)
+    return text

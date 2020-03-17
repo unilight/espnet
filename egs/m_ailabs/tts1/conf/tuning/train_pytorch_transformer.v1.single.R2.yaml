@@ -67,3 +67,4 @@ epochs: 1000  # 1,000 epochs * 969 batches / 6 accum-grad = 161,500 iters
 
 # other
 save-interval-epoch: 10
+eval-interval-epoch: 10

@@ -64,6 +64,8 @@ def get_parser():
                         help='Backward window size in the attention constraint')
     parser.add_argument('--forward-window', type=int, default=3,
                         help='Forward window size in the attention constraint')
+    parser.add_argument('--teacher-forcing', type=strtobool, default=False,
+                        help='Whether to decode using teacher forcing mode')
     # save related
     parser.add_argument('--save-durations', default=False, type=strtobool,
                         help='Whether to save durations converted from attentions')
@@ -114,8 +116,13 @@ def main(args):
     # extract
     logging.info('backend = ' + args.backend)
     if args.backend == "pytorch":
-        from espnet.tts.pytorch_backend.tts import decode
-        decode(args)
+        if args.teacher_forcing:
+            from espnet.tts.pytorch_backend.tts import teacher_forcing_decode
+            teacher_forcing_decode(args)
+
+        else:
+            from espnet.tts.pytorch_backend.tts import decode
+            decode(args)
     else:
         raise NotImplementedError("Only pytorch is supported.")
 

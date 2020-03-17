@@ -46,6 +46,6 @@ find ${db}/PhoneLabeling -name "*.interval" -follow | sort | while read -r filen
     start_sec=$(tail -n +14 ${filename} | head -n 1)
     end_sec=$(head -n -2 ${filename} | tail -n 1)
     echo "${id} ${content}" >> ${text}
-    echo "${id} ${id} ${start_sec} ${end_sec}" >> ${segments}
+    # echo "${id} ${id} ${start_sec} ${end_sec}" >> ${segments}
 done
-echo "Successfully finished making text, segments."
+echo "Successfully finished making text. One of the segment info is wrong so let's not to use it."

@@ -32,7 +32,7 @@ spk-embed-integration-type: add
 
 # minibatch related
 batch-sort-key: output # shuffle or input or output
-batch-bins: 1500000   # batch-size * (max_out * dim_out + max_in * dim_in)
+batch-bins: 1200000   # batch-size * (max_out * dim_out + max_in * dim_in)
                       # 5203 batches containing from 5 to 354 samples (avg 28 samples).
 
 # training related
@@ -56,7 +56,7 @@ bce-pos-weight: 10.0
 
 # optimization related
 opt: noam
-accum-grad: 4
+accum-grad: 5
 grad-clip: 1.0
 weight-decay: 0.0
 patience: 0

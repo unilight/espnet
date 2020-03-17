@@ -65,9 +65,22 @@ case "${lang_char}" in
             ${db}/prompts/${lang}_transcriptions.txt \
             ${utt2spk} $trans_type ${lang_tag} > ${text}
         ;;
+    "F") 
+        lang_tag=fi_FI
+        local/clean_text_finnish.py \
+            ${db}/prompts/${lang}_transcriptions.txt \
+            ${db}/prompts/Eng_transcriptions.txt \
+            ${utt2spk} $trans_type ${lang_tag} > ${text}
+        ;;
+    "G") 
+        lang_tag=de_DE
+        local/clean_text_german.py \
+            ${db}/prompts/${lang}_transcriptions.txt \
+            ${db}/prompts/Eng_transcriptions.txt \
+            ${utt2spk} $trans_type ${lang_tag} > ${text}
+        ;;
     *)
         echo "We don't have a text cleaner for this language now.";
-        continue
         ;;
 esac
 echo "finished making text."

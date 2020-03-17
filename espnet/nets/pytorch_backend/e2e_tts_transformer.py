@@ -672,6 +672,85 @@ class Transformer(TTSInterface, torch.nn.Module):
 
         return outs, probs, att_ws
 
+    def teacher_forcing_decoding(self, x, y, spemb=None, *args, **kwargs):
+        """Teacher forcing decoding of features given the sequences of characters.
+
+        Args:
+            x (Tensor): Input sequence of characters (T,).
+            y (Tensor): Ground truth target features (B, Lmax, odim).
+            spemb (Tensor, optional): Speaker embedding vector (spk_embed_dim).
+
+        Returns:
+            Tensor: Output sequence of features (L, odim).
+            Tensor: Encoder-decoder (source) attention weights (#layers, #heads, L, T).
+
+        """
+
+        # forward encoder
+        xs = x.unsqueeze(0)
+        hs, _ = self.encoder(xs, None)
+
+        # integrate speaker embedding
+        if self.spk_embed_dim is not None:
+            spembs = spemb.unsqueeze(0)
+            hs = self._integrate_with_spk_embed(hs, spembs)
+
+        # set limits of length
+        maxlen = int(y.size(0) / self.reduction_factor)
+
+        # reshape y according to reduction factor
+        yh = y[self.reduction_factor - 1::self.reduction_factor]
+
+        # initialize
+        idx = 0
+        ys = hs.new_zeros(1, 1, self.odim)
+        outs = []
+
+        # forward decoder step-by-step
+        z_cache = self.decoder.init_state(x)
+        while True:
+            # update index
+            idx += 1
+
+            # calculate output and stop prob at idx-th step
+            y_masks = subsequent_mask(idx).unsqueeze(0).to(x.device)
+            z, z_cache = self.decoder.forward_one_step(ys, y_masks, hs, cache=z_cache)  # (B, adim)
+            outs += [self.feat_out(z).view(self.reduction_factor, self.odim)]  # [(r, odim), ...]
+
+            # update next inputs
+            ys = torch.cat((ys, yh[idx-1].view(1, 1, self.odim)), dim=1)  # (1, idx + 1, odim)
+
+            # get attention weights
+            att_ws_ = []
+            for name, m in self.named_modules():
+                if isinstance(m, MultiHeadedAttention) and "src" in name:
+                    att_ws_ += [m.attn[0, :, -1].unsqueeze(1)]  # [(#heads, 1, T),...]
+            if idx == 1:
+                att_ws = att_ws_
+            else:
+                # [(#heads, l, T), ...]
+                att_ws = [torch.cat([att_w, att_w_], dim=1) for att_w, att_w_ in zip(att_ws, att_ws_)]
+
+            # check whether to finish generation
+            if idx >= maxlen:
+
+                # Due to reduction factor, length might be different
+                # pad zero vector if needed
+                if not len(outs) * self.reduction_factor == int(y.size(0)):
+                    outs += [torch.zeros(int(y.size(0)) - len(outs) * self.reduction_factor, self.odim)]
+                    
+
+                outs = torch.cat(outs, dim=0).unsqueeze(0).transpose(1, 2)  # (L, odim) -> (1, L, odim) -> (1, odim, L)
+                if self.postnet is not None:
+                    outs = outs + self.postnet(outs)  # (1, odim, L)
+                outs = outs.transpose(2, 1).squeeze(0)  # (L, odim)
+                break
+
+        # concatenate attention weights -> (#layers, #heads, L, T)
+        att_ws = torch.stack(att_ws, dim=0)
+
+        return outs, att_ws
+
     def calculate_all_attentions(self, xs, ilens, ys, olens,
                                  spembs=None, skip_output=False, keep_tensor=False, *args, **kwargs):
         """Calculate all of the attention weights.

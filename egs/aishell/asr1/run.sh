@@ -33,7 +33,7 @@ recog_model=model.acc.best # set a model to be used for decoding: 'model.acc.bes
 n_average=10
 
 # data
-data=/export/a05/xna/data
+data=downloads
 data_url=www.openslr.org/resources/33
 
 # exp tag

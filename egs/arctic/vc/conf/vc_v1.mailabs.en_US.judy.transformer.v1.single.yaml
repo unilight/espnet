@@ -33,6 +33,7 @@ modules-applied-guided-attn:
 num-heads-applied-guided-attn: 2
 num-layers-applied-guided-attn: 2
 opt: noam
+params-to-train: ''
 patience: 0
 postnet-chans: 256
 postnet-dropout-rate: 0.5

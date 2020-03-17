@@ -20,6 +20,8 @@ def get_parser():
                         help='Json file for the source speaker')
     parser.add_argument('--trg-json', type=str,
                         help='Json file for the target speaker')
+    parser.add_argument('--num_utts', default=-1, type=int,
+                        help='Number of utterances (take from head)')
     parser.add_argument('--verbose', '-V', default=1, type=int,
                         help='Verbose option')
     parser.add_argument('--out', '-O', type=str,
@@ -51,6 +53,7 @@ if __name__ == '__main__':
     _ = list(trg_json.keys())[0].split('_')
     trgspk = _[0]
 
+    count = 0
     data = {"utts" : {} }
     for k, v in src_json.items():
         _ = k.split('_')
@@ -60,7 +63,11 @@ if __name__ == '__main__':
         entry = {"input" : src_json[srcspk + '_' + number]['input'],
                  "output" : trg_json[trgspk + '_' + number]['input'],
                  }
+        entry["output"][0]["name"] = "target1"
         data["utts"][number] = entry
+        count += 1
+        if args.num_utts > 0 and count >= args.num_utts:
+            break
     
     if args.out is None:
         out = sys.stdout

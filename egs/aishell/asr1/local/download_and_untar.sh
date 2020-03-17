@@ -78,16 +78,17 @@ if [ ! -f $data/$part.tgz ]; then
   fi
 fi
 
-cd $data
+#cd $data
 
-if ! tar -xvzf $part.tgz; then
-  echo "$0: error un-tarring archive $data/$part.tgz"
-  exit 1;
-fi
+#if ! tar -xvzf $part.tgz; then
+#  echo "$0: error un-tarring archive $data/$part.tgz"
+#  exit 1;
+#fi
 
 touch $data/$part/.complete
 
 if [ $part == "data_aishell" ]; then
+  pwd
   cd $data/$part/wav
   for wav in ./*.tar.gz; do
     echo "Extracting wav from $wav"

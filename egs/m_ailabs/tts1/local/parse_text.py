@@ -36,7 +36,7 @@ def main():
                 if args.lang_tag is None:
                     line = "%s %s\n" % (uid, text)
                 else:
-                    line = "%s <%s>%s\n" % (uid, args.lang_tag, text)
+                    line = "%s <%s> %s\n" % (uid, args.lang_tag, text)
                 out.write(line)
 
 

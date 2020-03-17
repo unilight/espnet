@@ -27,6 +27,12 @@ n_fft=1024    # number of fft points
 n_shift=256   # number of shift points
 win_length="" # window length
 
+# silence part trimming related
+trim_threshold=25 # (in decibels)
+trim_win_length=1024
+trim_shift_length=256
+trim_min_silence=0.01
+
 # char or phn
 # In the case of phn, input transcription is convered to phoneem using https://github.com/Kyubyong/g2p.
 trans_type="phn"
@@ -140,6 +146,17 @@ if [ ${stage} -le 1 ] && [ ${stop_stage} -ge 1 ]; then
     echo "stage 1: Feature Generation"
 
     lang_char=$(echo ${spk} | head -c 2 | tail -c 1)
+    
+    # Trim silence parts at the begining and the end of audio
+    trim_silence.sh --cmd "${train_cmd}" \
+        --fs ${fs} \
+        --win_length ${trim_win_length} \
+        --shift_length ${trim_shift_length} \
+        --threshold ${trim_threshold} \
+        --min_silence ${trim_min_silence} \
+        data/${org_set} \
+        exp/trim_silence/${org_set}
+
     # Generate the fbank features; by default 80-dimensional fbanks on each frame
     fbankdir=fbank
     make_fbank.sh --cmd "${train_cmd}" --nj ${nj} \
@@ -177,12 +194,14 @@ if [ ${stage} -le 2 ] && [ ${stop_stage} -ge 2 ]; then
     ### Task dependent. You have to check non-linguistic symbols used in the corpus.
     echo "stage 2: Dictionary and Json Data Preparation"
 
+    nlsyms=$(find ${download_dir}/${pretrained_model} -name "*_non_lang_syms.txt" | head -n 1)
+
     # make json labels using pretrained model dict
-    data2json.sh --feat ${feat_tr_dir}/feats.scp --trans_type ${trans_type} \
+    data2json.sh --feat ${feat_tr_dir}/feats.scp --nlsyms "${nlsyms}" --trans_type ${trans_type} \
          data/${train_set} ${dict} > ${feat_tr_dir}/data.json
-    data2json.sh --feat ${feat_dt_dir}/feats.scp --trans_type ${trans_type} \
+    data2json.sh --feat ${feat_dt_dir}/feats.scp --nlsyms "${nlsyms}" --trans_type ${trans_type} \
          data/${dev_set} ${dict} > ${feat_dt_dir}/data.json
-    data2json.sh --feat ${feat_ev_dir}/feats.scp --trans_type ${trans_type} \
+    data2json.sh --feat ${feat_ev_dir}/feats.scp --nlsyms "${nlsyms}" --trans_type ${trans_type} \
          data/${eval_set} ${dict} > ${feat_ev_dir}/data.json
     
 fi
@@ -343,15 +362,16 @@ if [ ${stage} -le 5 ] && [ ${stop_stage} -ge 5 ]; then
     done
 fi
 
-if [ ${stage} -le 7 ] && [ ${stop_stage} -ge 7 ]; then
-    echo "stage 7: Objective Evaluation"
+if [ ${stage} -le 6 ] && [ ${stop_stage} -ge 6 ]; then
+    echo "stage 6: Objective Evaluation"
 
-    for name in ${dev_set} ${eval_set}; do
+    for name in ${eval_set}; do
         local/ob_eval/evaluate_cer.sh --nj ${nj} \
             --do_delta false \
             --eval_tts_model ${eval_tts_model} \
             --db_root ${db_root} \
             --backend pytorch \
+            --vocoder ${vocoder} \
             --wer ${wer} \
             --api v2 \
             ${asr_model} \
@@ -533,9 +553,10 @@ if [ ${stage} -le 12 ] && [ ${stop_stage} -ge 12 ]; then
     fi
     pairname=${srcspk}_${trgspk}_eval
     outdir=exp/${srcspk}_eval_asr/$(basename ${tts_model_dir})_${model}; mkdir -p ${outdir}
-    tts_datadir=exp/${srcspk}_eval_asr/data_tts; mkdir -p ${tts_datadir}
+    tts_datadir=exp/${srcspk}_eval_asr/data_tts/${trgspk}; mkdir -p ${tts_datadir}
     text=${tts_datadir}/text
     dict=$(find ${download_dir}/${pretrained_model} -name "*_units.txt" | head -n 1)
+    nlsyms=$(find ${download_dir}/${pretrained_model} -name "*_non_lang_syms.txt" | head -n 1)
 
     echo "Data preparation..."
     # clean text from asr result
@@ -547,9 +568,9 @@ if [ ${stage} -le 12 ] && [ ${stop_stage} -ge 12 ]; then
 
     # data2json.sh needs utt2spk
     echo "Making data.json ..."
-    cp exp/${srcspk}_eval_asr/data_asr/utt2spk ${tts_datadir}/utt2spk_tmp
+    cp exp/${srcspk}_eval_asr/data_asr/utt2spk ${tts_datadir}/utt2spk
     sed -i "s~${srcspk}~${trgspk}~g" ${tts_datadir}/utt2spk
-    data2json.sh --trans_type ${trans_type} \
+    data2json.sh --nlsyms "${nlsyms}" --trans_type ${trans_type} \
          ${tts_datadir} ${dict} > ${tts_datadir}/data.json
     
     # use the avg x-vector in target speaker training set
@@ -632,6 +653,86 @@ if [ ${stage} -le 13 ] && [ ${stop_stage} -ge 13 ]; then
     echo "Finished."
 fi
 
+###############################################################
+
+if [ ${stage} -le 14 ] && [ ${stop_stage} -ge 14 ]; then
+    echo "stage 14: [Teacher-forcing mode] Decoding, Synthesis, hdf5 generation"
+
+    nj=10
+    
+    if [ -z ${tag} ]; then
+        expname=${train_set}_${backend}_$(basename ${train_config%.*})
+    else
+        expname=${train_set}_${backend}_${tag}
+    fi
+    expdir=exp/${expname}
+    outdir=${expdir}/GTA_outputs_${model}_$(basename ${decode_config%.*})
+    
+    pids=() # initialize pids
+    for name in ${train_set} ${dev_set}; do
+    (
+        [ ! -e ${outdir}/${name} ] && mkdir -p ${outdir}/${name}
+        cp ${dumpdir}/${name}/data.json ${outdir}/${name}
+        splitjson.py --parts ${nj} ${outdir}/${name}/data.json
+        # decode in parallel
+        ${train_cmd} JOB=1:${nj} ${outdir}/${name}/log/decode.JOB.log \
+            tts_decode.py \
+                --teacher-forcing True \
+                --backend ${backend} \
+                --ngpu 0 \
+                --verbose ${verbose} \
+                --out ${outdir}/${name}/feats.JOB \
+                --json ${outdir}/${name}/split${nj}utt/data.JOB.json \
+                --model ${expdir}/results/${model} \
+                --config ${decode_config}
+        # concatenate scp files
+        for n in $(seq ${nj}); do
+            cat "${outdir}/${name}/feats.$n.scp" || exit 1;
+        done > ${outdir}/${name}/feats.scp
+    ) &
+    pids+=($!) # store background pids
+    done
+    i=0; for pid in "${pids[@]}"; do wait ${pid} || ((i++)); done
+    [ ${i} -gt 0 ] && echo "$0: ${i} background jobs are failed." && false
+    
+    echo "Synthesis"
+    pids=() # initialize pids
+    for name in ${train_set} ${dev_set}; do
+    (
+        [ ! -e ${outdir}_denorm/${name} ] && mkdir -p ${outdir}_denorm/${name}
+        # use pretrained model cmvn
+        cmvn=$(find ${download_dir}/${pretrained_model} -name "cmvn.ark" | head -n 1)
+        apply-cmvn --norm-vars=true --reverse=true ${cmvn} \
+            scp:${outdir}/${name}/feats.scp \
+            ark,scp:${outdir}_denorm/${name}/feats.ark,${outdir}_denorm/${name}/feats.scp
+        convert_fbank.sh --nj ${nj} --cmd "${train_cmd}" \
+            --fs ${fs} \
+            --fmax "${fmax}" \
+            --fmin "${fmin}" \
+            --n_fft ${n_fft} \
+            --n_shift ${n_shift} \
+            --win_length "${win_length}" \
+            --n_mels ${n_mels} \
+            --iters ${griffin_lim_iters} \
+            ${outdir}_denorm/${name} \
+            ${outdir}_denorm/${name}/log \
+            ${outdir}_denorm/${name}/wav
+    ) &
+    pids+=($!) # store background pids
+    done
+    i=0; for pid in "${pids[@]}"; do wait ${pid} || ((i++)); done
+    [ ${i} -gt 0 ] && echo "$0: ${i} background jobs are failed." && false
+    
+    echo "Generate hdf5"
+    # generate h5 for WaveNet vocoder
+    for name in ${train_set} ${dev_set}; do
+        feats2hdf5.py \
+            --scp_file ${outdir}_denorm/${name}/feats.scp \
+            --out_dir ${outdir}_denorm/${name}/hdf5/
+        (find "$(cd ${outdir}_denorm/${name}/hdf5; pwd)" -name "*.h5" -print &) | head > ${outdir}_denorm/${name}/hdf5_feats.scp
+        echo "generated hdf5 for ${name} set"
+    done
+fi
 
 
 ################################################

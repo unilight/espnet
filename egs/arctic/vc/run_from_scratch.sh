@@ -41,9 +41,20 @@ griffin_lim_iters=64  # the number of iterations of Griffin-Lim
 
 download_dir=downloads
 
+# objective evaluation related
+db_root=downloads
+asr_model="librispeech.transformer.ngpu4"
+eval_model=true                                # true: evaluate trained model, false: evaluate ground truth
+wer=true                                       # true: evaluate CER & WER, false: evaluate only CER
+vocoder=                                       # select vocoder type (GL, WNV, PWG)
+mcd=true                                       # true: evaluate MCD
+mcep_dim=24
+shift_ms=5
+
 # dataset configuration
 srcspk=clb  # see local/data_prep.sh to check available speakers
 trgspk=slt
+num_train_utts=-1
 
 # exp tag
 tag=""  # tag for managing experiments.
@@ -206,7 +217,12 @@ expdir=exp/${expname}
 mkdir -p ${expdir}
 if [ ${stage} -le 3 ] && [ ${stop_stage} -ge 3 ]; then
     echo "stage 3: VC model training"
-    tr_json=${pair_tr_dir}/data.json
+
+    if [ ${num_train_utts} -ge 0 ]; then
+        tr_json=${pair_tr_dir}/data_n${num_train_utts}.json
+    else
+        tr_json=${pair_tr_dir}/data.json
+    fi
     dt_json=${pair_dt_dir}/data.json
     ${cuda_cmd} --gpu ${ngpu} ${expdir}/train.log \
         vc_train.py \

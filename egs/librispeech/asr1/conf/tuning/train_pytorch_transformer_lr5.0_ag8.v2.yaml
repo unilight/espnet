@@ -1,8 +1,8 @@
-accum-grad: 8
+accum-grad: 16
 adim: 256
 aheads: 4
 backend: pytorch
-batch-bins: 5992000
+batch-bins: 2996000
 batch-count: bin
 dlayers: 6
 dropout-rate: 0.1
