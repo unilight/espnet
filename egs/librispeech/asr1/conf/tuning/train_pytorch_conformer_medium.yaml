@@ -1,0 +1,38 @@
+
+backend: pytorch
+model-module: espnet.nets.pytorch_backend.e2e_asr_conformer:E2E
+
+adim: 256
+aheads: 4
+elayers: 12
+eunits: 2048
+dlayers: 6
+dunits: 2048
+transformer-attn-dropout-rate: 0.0
+transformer-init: pytorch
+transformer-input-layer: conv2d
+transformer-length-normalized-loss: false
+dropout-rate: 0.1
+
+#transformer-encoder-activation-type: swish
+transformer-encoder-pos-enc-layer-type: rel_pos
+transformer-encoder-selfattn-layer-type: rel_selfattn
+macaron-style: true
+use-cnn-module: true
+cnn-module-kernel: 31
+
+#batch-bins: 15000000
+batch-size: 64
+accum-grad: 1
+
+transformer-lr: 0.1
+transformer-warmup-steps: 10000
+epochs: 50
+grad-clip: 5
+lsm-weight: 0.1
+mtlalpha: 0.3
+opt: noam
+patience: 0
+sortagrad: 0
+maxlen-in: 512
+maxlen-out: 150
